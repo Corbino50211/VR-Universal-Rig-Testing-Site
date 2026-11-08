@@ -1,0 +1,7 @@
+{
+  "name": "UniversalRig.Editor",
+  "rootNamespace": "UniversalRig.Editor",
+  "references": ["UniversalRig.Runtime", "Unity.InputSystem"],
+  "includePlatforms": ["Editor"],
+  "autoReferenced": true
+}
