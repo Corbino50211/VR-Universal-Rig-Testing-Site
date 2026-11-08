@@ -2,7 +2,9 @@
 
 Target: Unity **6000.6.5f1**, URP **17.6.0**, Input System **1.20.0**, OpenXR **1.18.0**, PCVR first. The repository also contains XRI **3.6.1**; the new rig owns its movement/grabbing directly and does not need an XRI locomotion stack.
 
-The inspected base is `fa6a79a9bbbb622137c816dfc5b13855b93e8541`. It contains no existing player rig or BIMOS scripts. This is an original foundation, not Stress Level Zero source code or a finished BONEWORKS-equivalent rig.
+The branch also preserves the user's newer `40905d3e28a1f57c0be4871df1a8ce421a2d174a` commit: updated test map/materials, ProBuilder, URP resources and weapon prefabs under `Assets/Weapons/Prefabs`. Inspect those authored prefabs before preparing weapon variants.
+
+The initially inspected base is `fa6a79a9bbbb622137c816dfc5b13855b93e8541`. It contains no existing player rig or BIMOS scripts. This is an original foundation, not Stress Level Zero source code or a finished BONEWORKS-equivalent rig.
 
 ## Quick start in Unity
 

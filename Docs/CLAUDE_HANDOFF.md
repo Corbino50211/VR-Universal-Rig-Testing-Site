@@ -22,6 +22,8 @@ Read `Docs/RIG_FOUNDATION.md`, this file, `Docs/CURSOR_HANDOFF_TEMPLATE.md`, and
 
 The code is a **foundation awaiting Unity validation**, not a finished rig. Its author had no Unity Editor or headset. Do not assume a compile pass or a generated prefab exists. The soldier visual starts disabled deliberately. The current body is an upright dynamic capsule with two independent physical hands, not an active ragdoll. A grabbable M1911 prop does not implement a gun.
 
+The branch includes the user's newer test-map and weapon-prefab commit. Preserve `Assets/Testing Scene.unity` and inspect `Assets/Weapons/Prefabs` as the starting place for weapon setup. The M1911 prefab text contains named Hammer and Trigger mesh objects; validate all moving parts in Unity before assigning behavior.
+
 ## 1. Import and generate
 
 1. Confirm all required Git LFS assets have actual bytes. If models are LFS pointers, download the objects with the project's Git tooling before importing; never substitute a pointer file as a model.
