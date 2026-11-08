@@ -28,7 +28,7 @@ namespace UniversalRig.Weapons
             if (Seated)
             {
                 PhysicsGrabbable grab = Seated.GetComponent<PhysicsGrabbable>();
-                if (!Seated.gameObject.activeInHierarchy || (grab && grab.HoldingHands > 0)) Unseat();
+                if (!joint || !Seated.gameObject.activeInHierarchy || (grab && grab.HoldingHands > 0)) Unseat();
                 return;
             }
             int count = Physics.OverlapSphereNonAlloc(seat.position, distance + 0.04f, nearby, ~0, QueryTriggerInteraction.Ignore);
@@ -38,7 +38,7 @@ namespace UniversalRig.Weapons
             {
                 if (!nearby[i] || !nearby[i].attachedRigidbody) continue;
                 Magazine mag = nearby[i].attachedRigidbody.GetComponent<Magazine>();
-                if (!mag || mag.ammoId != ammoId) continue;
+                if (!mag || !mag.isActiveAndEnabled || mag.Socket || mag.ammoId != ammoId) continue;
                 PhysicsGrabbable grab = mag.GetComponent<PhysicsGrabbable>();
                 if (!grab || grab.HoldingHands > 0 || grab.Body.isKinematic) continue;
                 float gap = Vector3.Distance(mag.transform.position, seat.position);
@@ -59,6 +59,7 @@ namespace UniversalRig.Weapons
                 mag.gameObject.SetActive(false);
                 return;
             }
+            if (!mag.TryClaim(this)) return;
             mag.transform.SetPositionAndRotation(seat.position, seat.rotation);
             mag.Body.linearVelocity = Vector3.zero;
             mag.Body.angularVelocity = Vector3.zero;
@@ -85,7 +86,11 @@ namespace UniversalRig.Weapons
                 Destroy(joint);
             }
             joint = null;
-            if (Seated) IgnorePair(Seated, false);
+            if (Seated)
+            {
+                Seated.ReleaseSocket(this);
+                IgnorePair(Seated, false);
+            }
             Seated = null;
         }
 

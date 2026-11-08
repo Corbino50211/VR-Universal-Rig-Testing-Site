@@ -11,6 +11,22 @@ namespace UniversalRig.Weapons
         [Min(0)] public int rounds = 1;
         public Rigidbody Body => body ? body : body = GetComponent<Rigidbody>();
         Rigidbody body;
+        public MagazineSocket Socket { get; private set; }
+
+        internal bool TryClaim(MagazineSocket socket)
+        {
+            if (Socket && Socket != socket) return false;
+            Socket = socket;
+            return true;
+        }
+
+        internal void ReleaseSocket(MagazineSocket socket)
+        {
+            if (Socket == socket) Socket = null;
+        }
+
+        void OnDisable() { if (Socket) Socket.Unseat(); }
+
 
         void OnValidate() { rounds = Mathf.Clamp(rounds, 0, Mathf.Max(1, capacity)); }
     }

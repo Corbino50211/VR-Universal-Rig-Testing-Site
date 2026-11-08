@@ -55,6 +55,7 @@ namespace UniversalRig.Weapons
             box.size = new Vector3(0.06f, 0.05f, 0.07f);
             HandleGrip = go.AddComponent<GripPoint>();
             HandleGrip.role = GripPoint.Role.Support;
+            HandleGrip.isActionHandle = true;
             HandleGrip.fingerCurl = 1f;
             PhysicsGrabbable grab = go.AddComponent<PhysicsGrabbable>();
             grab.maximumHands = 1;
@@ -62,15 +63,20 @@ namespace UniversalRig.Weapons
             joint.connectedBody = firearm.Body;
             joint.autoConfigureConnectedAnchor = false;
             joint.anchor = Vector3.zero;
-            joint.connectedAnchor = closedLocal;
+            // Center the symmetric joint limit halfway along the one-sided rail.
+            joint.connectedAnchor = firearm.transform.InverseTransformPoint(
+                marker.position + OpenDirectionWorld * (travel * 0.5f));
             joint.axis = go.transform.InverseTransformDirection(OpenDirectionWorld);
-            // Linear motion is scripted (ClampToSegment / SlideToward). The joint axis
-            // did not stay aligned with the barrel, so a locked axis blocked the pull.
-            joint.xMotion = joint.yMotion = joint.zMotion = ConfigurableJointMotion.Free;
+            Vector3 perpendicular = Mathf.Abs(Vector3.Dot(joint.axis, Vector3.up)) < 0.9f
+                ? Vector3.up : Vector3.forward;
+            joint.secondaryAxis = Vector3.ProjectOnPlane(perpendicular, joint.axis).normalized;
+            joint.xMotion = ConfigurableJointMotion.Limited;
+            joint.yMotion = joint.zMotion = ConfigurableJointMotion.Locked;
             joint.angularXMotion = joint.angularYMotion = joint.angularZMotion = ConfigurableJointMotion.Locked;
-            joint.linearLimit = new SoftJointLimit { limit = travel };
-            joint.xDrive = Drive(false);
-            joint.targetPosition = Vector3.zero;
+            joint.linearLimit = new SoftJointLimit { limit = travel * 0.5f, contactDistance = 0.001f };
+            joint.projectionMode = JointProjectionMode.None;
+            HandleBody.solverIterations = 12;
+            HandleBody.solverVelocityIterations = 4;
             joint.enableCollision = false;
             joint.breakForce = Mathf.Infinity;
             joint.breakTorque = Mathf.Infinity;
@@ -94,9 +100,6 @@ namespace UniversalRig.Weapons
         {
             if (!HandleBody || !joint) return;
             bool held = HandleHeld();
-            if (held) FollowHand();
-            else SlideToward(LockedOpen ? travel : 0f);
-            ClampToSegment();
             Open01 = Measure();
             if (LockedOpen && wasHeld && !held && firearm.profile && firearm.profile.cycle != FirearmCycle.OpenBolt)
                 firearm.ReleaseSlideLock();
@@ -114,12 +117,11 @@ namespace UniversalRig.Weapons
                 }
                 wasPast = past;
             }
-            // While a hand is on the handle the drive follows it, so the return spring
-            // does not cancel the pull. Released, it shuts (or stays open on slide lock).
+            // The hand pulls through its grab joint. Only the bounded return spring
+            // drives a released handle; neither tracked targets nor transforms move it.
             float target = LockedOpen ? travel : Time.time < blipUntil ? travel * 0.35f : 0f;
-            if (held && !LockedOpen) target = Open01 * travel;
-            joint.xDrive = Drive(held && !LockedOpen);
-            joint.targetPosition = new Vector3(target, 0f, 0f);
+            ApplySpring(target, held && !LockedOpen);
+
         }
 
         void LateUpdate()
@@ -130,13 +132,6 @@ namespace UniversalRig.Weapons
                 : OpenDirectionWorld;
             visual.localPosition = visualRest + axis * (Open01 * travel);
         }
-
-        static JointDrive Drive(bool held) => new JointDrive
-        {
-            positionSpring = held ? 30f : 500f,
-            positionDamper = held ? 8f : 35f,
-            maximumForce = held ? 6f : 35f
-        };
 
         bool HandleHeld()
         {
@@ -150,43 +145,33 @@ namespace UniversalRig.Weapons
             return Mathf.Clamp01(Vector3.Dot(HandleBody.position - rest, OpenDirectionWorld) / travel);
         }
 
-        // Move the handle to the holding hand's target, clamped to the slide axis.
-        void FollowHand()
+        void ApplySpring(float target, bool held)
         {
-            PhysicsGrabbable grab = HandleBody.GetComponent<PhysicsGrabbable>();
-            PhysicsHand hand = grab ? grab.PrimaryHand : null;
-            if (!hand) return;
-            Vector3 rest = transform.TransformPoint(closedLocal);
             Vector3 axis = OpenDirectionWorld;
-            float along = Mathf.Clamp(Vector3.Dot(hand.TargetPosition - rest, axis), 0f, travel);
-            HandleBody.position = rest + axis * along;
-            HandleBody.linearVelocity = Vector3.ProjectOnPlane(HandleBody.linearVelocity, axis);
+            Vector3 rest = transform.TransformPoint(closedLocal);
+            float position = Vector3.Dot(HandleBody.position - rest, axis);
+            float speed = Vector3.Dot(HandleBody.linearVelocity - firearm.Body.GetPointVelocity(HandleBody.position), axis);
+            float spring = held ? 30f : 500f;
+            float damping = held ? 2f : 12f;
+            float inverseMass = 1f / HandleBody.mass + (firearm.Body.isKinematic ? 0f : 1f / firearm.Body.mass);
+            float dt = Time.fixedDeltaTime;
+            // Implicit damping keeps the return spring stable at lower physics rates.
+            float denominator = 1f + (damping * dt + spring * dt * dt) * inverseMass;
+            float force = Mathf.Clamp(((target - position) * spring - speed * damping) / denominator,
+                held ? -6f : -35f, held ? 6f : 35f);
+            Vector3 applied = axis * force;
+            HandleBody.AddForce(applied, ForceMode.Force);
+            firearm.Body.AddForceAtPosition(-applied, HandleBody.position, ForceMode.Force);
         }
 
-        // The joint drive's axis does not reliably match the slide. Shut (or lock) it directly.
-        void SlideToward(float along)
+        void OnDisable()
         {
-            Vector3 rest = transform.TransformPoint(closedLocal);
-            Vector3 axis = OpenDirectionWorld;
-            float current = Vector3.Dot(HandleBody.position - rest, axis);
-            float next = Mathf.MoveTowards(current, along, 0.55f * Time.fixedDeltaTime);
-            Vector3 target = rest + axis * Mathf.Clamp(next, 0f, travel);
-            if ((HandleBody.position - target).sqrMagnitude < 0.000004f) return;
-            HandleBody.position = target;
-            HandleBody.linearVelocity = Vector3.zero;
+            if (HandleBody) HandleBody.gameObject.SetActive(false);
         }
 
-        // ponytail: ConfigurableJoint linear limits are symmetric. Clamp the handle to the
-        // rearward segment. A one-sided limit joint replaces this if the slide needs to stack.
-        void ClampToSegment()
+        void OnEnable()
         {
-            Vector3 rest = transform.TransformPoint(closedLocal);
-            Vector3 axis = OpenDirectionWorld;
-            float along = Mathf.Clamp(Vector3.Dot(HandleBody.position - rest, axis), 0f, travel);
-            Vector3 target = rest + axis * along;
-            if ((HandleBody.position - target).sqrMagnitude < 0.000004f) return;
-            HandleBody.position = target;
-            HandleBody.linearVelocity = Vector3.zero;
+            if (HandleBody) HandleBody.gameObject.SetActive(true);
         }
 
         void OnDestroy() { if (HandleBody) Destroy(HandleBody.gameObject); }

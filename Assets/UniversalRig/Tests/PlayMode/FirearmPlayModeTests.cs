@@ -281,6 +281,104 @@ namespace UniversalRig.Tests
             Assert.That(ak.Mode, Is.EqualTo(FireMode.Auto), "The other hand's trigger on the selector changes mode.");
         }
 
+        [UnityTest]
+        public IEnumerator DetachedMagazineStopsFeedingAndReleasesOwnership()
+        {
+            Firearm gun = SpawnGun("M1911", rig.rightHand);
+            Magazine mag = SpawnMag("Mag_45", 3);
+            yield return Seat(gun, mag);
+            Assert.That(mag.Socket, Is.SameAs(gun.socket));
+            // A solver break destroys the joint. Reproduce that lifecycle without
+            // relying on platform-specific force thresholds.
+            Object.Destroy(mag.GetComponent<ConfigurableJoint>());
+            mag.Body.position += Vector3.left;
+            yield return new WaitForFixedUpdate();
+            yield return new WaitForFixedUpdate();
+            Assert.That(gun.Magazine, Is.Null);
+            Assert.That(mag.Socket, Is.Null);
+            gun.OnActionClosed();
+            Assert.That(gun.ChamberLoaded, Is.False);
+            Assert.That(mag.rounds, Is.EqualTo(3));
+            yield return Seat(gun, mag);
+            mag.gameObject.SetActive(false);
+            Assert.That(gun.Magazine, Is.Null);
+            Assert.That(mag.Socket, Is.Null);
+        }
+
+        [UnityTest]
+        public IEnumerator OverlappingSocketsCannotShareAMagazine()
+        {
+            Firearm first = SpawnGun("M1911", rig.rightHand);
+            Firearm second = SpawnGun("M1911", rig.rightHand);
+            first.Body.isKinematic = second.Body.isKinematic = true;
+            foreach (Collider collider in first.GetComponentsInChildren<Collider>()) collider.enabled = false;
+            foreach (Collider collider in second.GetComponentsInChildren<Collider>()) collider.enabled = false;
+            Magazine mag = SpawnMag("Mag_45", 3);
+            mag.Body.position = first.socket.seat.position;
+            mag.Body.rotation = first.socket.seat.rotation;
+            Physics.SyncTransforms();
+            yield return new WaitForFixedUpdate();
+            yield return new WaitForFixedUpdate();
+            int owners = (first.Magazine == mag ? 1 : 0) + (second.Magazine == mag ? 1 : 0);
+            Assert.That(owners, Is.EqualTo(1));
+            Assert.That(mag.GetComponents<ConfigurableJoint>().Length, Is.EqualTo(1));
+            Assert.That(mag.Socket, Is.Not.Null);
+        }
+
+        [UnityTest]
+        public IEnumerator ActionRailRestrictsSidewaysPullAndReturnsClosed()
+        {
+            Firearm gun = SpawnGun("BenelliM4", rig.rightHand);
+            gun.Body.isKinematic = true;
+            ActionPart action = gun.action;
+            Vector3 rest = action.HandleBody.position;
+            Vector3 axis = action.OpenDirectionWorld;
+            Vector3 sideways = Vector3.Cross(axis, Vector3.up).normalized;
+            float end = Time.time + 0.5f;
+            while (Time.time < end)
+            {
+                action.HandleBody.AddForce((axis + sideways) * 40f, ForceMode.Force);
+                yield return new WaitForFixedUpdate();
+            }
+            Vector3 delta = action.HandleBody.position - rest;
+            Assert.That(action.Open01, Is.GreaterThan(0.8f), "The pull must exercise the end of the rail.");
+            Assert.That(Vector3.ProjectOnPlane(delta, axis).magnitude, Is.LessThan(0.01f));
+            Assert.That(Vector3.Dot(delta, axis), Is.InRange(-0.01f, action.travel + 0.01f));
+            gun.ReleaseSlideLock();
+            yield return Seconds(0.6f);
+            Assert.That(action.Open01, Is.LessThan(0.2f));
+            gun.gameObject.SetActive(false);
+            Assert.That(action.HandleBody.gameObject.activeSelf, Is.False);
+        }
+
+        [UnityTest]
+        public IEnumerator ObstaclePreventsActionFromCycling()
+        {
+            Firearm gun = SpawnGun("BenelliM4", rig.rightHand);
+            gun.Body.isKinematic = true;
+            ActionPart action = gun.action;
+            Vector3 axis = action.OpenDirectionWorld;
+            // Find the handle box extent along the rail, independently of its rotation.
+            BoxCollider handle = action.HandleBody.GetComponent<BoxCollider>();
+            Vector3 localAxis = handle.transform.InverseTransformDirection(axis);
+            Vector3 half = handle.size * 0.5f;
+            float extent = Mathf.Abs(localAxis.x) * half.x + Mathf.Abs(localAxis.y) * half.y + Mathf.Abs(localAxis.z) * half.z;
+            GameObject obstacle = Box("Blocked action", action.HandleBody.position + axis * (extent + action.travel * 0.35f + 0.005f),
+                new Vector3(0.3f, 0.3f, 0.01f));
+            obstacle.transform.rotation = Quaternion.LookRotation(axis);
+            Physics.SyncTransforms();
+            gun.TryLoadTube(1);
+            float end = Time.time + 0.7f;
+            while (Time.time < end)
+            {
+                action.HandleBody.AddForce(axis * 40f, ForceMode.Force);
+                yield return new WaitForFixedUpdate();
+            }
+            Assert.That(action.Open01, Is.LessThan(action.threshold));
+            Assert.That(gun.ChamberLoaded, Is.False);
+            Assert.That(gun.TubeRounds, Is.EqualTo(1));
+        }
+
         Firearm SpawnGun(string name, PhysicsHand hand)
         {
 #if UNITY_EDITOR
@@ -395,6 +493,10 @@ namespace UniversalRig.Tests
         IEnumerator GrabNamed(Firearm gun, string gripName, bool leftHand)
         {
             PhysicsHand hand = leftHand ? rig.leftHand : rig.rightHand;
+            if (leftHand) left.grip = 0f;
+            else right.grip = 0f;
+            yield return Move(leftHand, Grip(gun, gripName));
+            yield return Seconds(0.15f);
             if (leftHand) left.grip = 1f;
             else right.grip = 1f;
             float end = Time.time + 1.5f;
@@ -431,8 +533,6 @@ namespace UniversalRig.Tests
             ActionPart action = gun.action;
             Assert.That(action && action.HandleBody, Is.True);
             PhysicsGrabbable handle = action.HandleBody.GetComponent<PhysicsGrabbable>();
-            int cap = gun.Grabbable.maximumHands;
-            gun.Grabbable.maximumHands = Mathf.Max(1, gun.Grabbable.HoldingHands);
             // Midpoint of the two hands. Each arm can reach it; either extreme cannot.
             Vector3 meet = 0.5f * (rig.leftHand.Body.position + rig.rightHand.Body.position);
             meet.y = Mathf.Min(meet.y, 1.25f);
@@ -465,8 +565,6 @@ namespace UniversalRig.Tests
             for (float t = 0f; t < 0.45f; t += Time.deltaTime)
             {
                 Vector3 pos = Vector3.Lerp(start, open, t / 0.45f);
-                action.HandleBody.position = pos;
-                action.HandleBody.linearVelocity = Vector3.zero;
                 Aim(true, pos, action.HandleBody.rotation);
                 Push();
                 yield return new WaitForFixedUpdate();
@@ -480,6 +578,8 @@ namespace UniversalRig.Tests
                 yield return null;
             }
             Assert.That(gun.ChamberLoaded || gun.Cocked, "Working the action did not chamber or cock. Open01=" + action.Open01);
+            yield return Move(true, LeftRest, Quaternion.identity);
+            yield return Seconds(0.35f);
         }
 
         static void Stick(Firearm gun, Transform grip, PhysicsHand hand)
@@ -576,6 +676,9 @@ namespace UniversalRig.Tests
             GameObject obj = Box(name, position, size);
             if (forward.sqrMagnitude > 0.0001f)
                 obj.transform.rotation = Quaternion.LookRotation(forward);
+            // Newly placed/rotated targets must enter the physics scene before the
+            // next FixedUpdate fires a hitscan ray (autoSyncTransforms may be off).
+            Physics.SyncTransforms();
             return obj.AddComponent<HitTarget>();
         }
 

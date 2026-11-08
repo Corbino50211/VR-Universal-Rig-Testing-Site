@@ -204,3 +204,36 @@ Open `Assets/UniversalRig/Generated/RigPhysicsLab.unity`. Section 3 is still the
 - Spectator or mirror cameras see the headless mesh.
 - `RigBuilder.SetupFirstPersonRenderers` handles a single skinned mesh (`ponytail:` note).
 - Interpolation offset: the tracking space is shifted by the body's render-interpolation delta in LateUpdate. It is smooth in the editor. Check judder on the headset.
+
+
+## 5. Firearm review corrections (2026-11-08, Codex)
+
+These changes are based on Cursor's TextMeshPro commit `ebe94db`. The TMP labels,
+scene, generated prefabs, builder, and assembly references are preserved.
+
+- Action handles now use a centered, one-axis limited joint with locked lateral
+  motion. A bounded, timestep-stabilized spring applies equal/opposite forces to
+  the handle and gun. Runtime code no longer assigns the handle's position or
+  reads the tracked controller to move it. The action hand's angular constraint
+  is free, preventing wrist orientation from fighting the rail.
+- Authored grips use controller intent to distinguish neighboring support/action
+  grips, while still requiring physical hand proximity. The physical hand is no
+  longer teleported to a grip. Obstruction checks inspect all ray hits and skip
+  the rig hands and connected weapon bodies, without the old 8 cm wall bypass.
+- Magazines have exclusive socket ownership. Missing/broken joints and disabled
+  magazines clear the socket and release collision exclusions. Two sockets cannot
+  claim one magazine.
+- Action tests pull through simulated controller input instead of assigning the
+  handle position or disabling the gun's support grip. Test targets explicitly
+  synchronize transforms before hitscan queries. This removes a target-creation
+  timing ambiguity; the previously failing shotgun hit still needs a Unity rerun.
+- Added four PlayMode regressions: joint removal and magazine deactivation;
+  overlapping socket ownership; rail travel/lateral restraint/return and disable;
+  obstruction preventing an action cycle.
+
+Validation here: C# syntax parsing and assembly-definition JSON checks, plus diff
+review. **No Unity compilation, PlayMode run, or headset run was available in this
+workspace.** Section 4 results are historical, not passing results for these fixes.
+Run the entire EditMode suite and both rig/firearm PlayMode suites, then the headset
+checklist. In particular verify slide/bolt grab, bracing, Uzi cocking, blocked
+cycling, shotgun hits, recoil/body drift, and repeat enable/disable.

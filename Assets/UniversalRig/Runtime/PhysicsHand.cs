@@ -38,6 +38,7 @@ namespace UniversalRig
         private bool jointControlsRotation;
         private Collider climbCollider;
         private readonly Collider[] nearby = new Collider[32];
+        private readonly RaycastHit[] gripObstructions = new RaycastHit[32];
         private bool gripArmed = true;
         private bool hadTracking;
         private int contactSteps;
@@ -140,7 +141,7 @@ namespace UniversalRig
                     RemoveJoint();
                     // A fresh joint captures the current relative rotation on handover.
                     // Locking the old free joint would restore its original grip rotation.
-                    CreateJoint(HeldObject.Body, anchor, connectedAnchor, primary, settings.grabBreakForce, settings.grabBreakTorque);
+                    CreateJoint(HeldObject.Body, anchor, connectedAnchor, primary, settings.grabBreakForce, settings.grabBreakTorque, ActiveGrip);
                 }
             }
             float grip = Grip;
@@ -213,8 +214,8 @@ namespace UniversalRig
             GripPoint best = null;
             PhysicsGrabbable bestItem = null;
             float bestScore = float.PositiveInfinity;
-            // A little past the touch radius: the arm limit can leave the hand short of a slide.
-            float radiusSqr = Mathf.Max(settings.grabRadius, 0.18f);
+            // Use the configured touch radius; controller intent never extends physical reach.
+            float radiusSqr = Mathf.Max(settings.grabRadius, 0.10f);
             radiusSqr *= radiusSqr;
             for (int i = 0; i < count; ++i)
             {
@@ -240,34 +241,24 @@ namespace UniversalRig
                     if (!held && grip.role == GripPoint.Role.Support && anyPrimary) continue;
                     if (held && grip.role == GripPoint.Role.Primary && anySupport) continue;
                     float distance = (grip.transform.position - Body.position).sqrMagnitude;
-                    if (distance > radiusSqr || distance >= bestScore) continue;
-                    if (Blocked(grip.transform.position, item)) continue;
+                    if (distance > radiusSqr) continue;
+                    // Resolve nearby grips by controller intent, but require physical proximity.
+                    // This prevents the slide intercepting a hand aimed at the support grip.
+                    float score = (grip.transform.position - TargetPosition).sqrMagnitude;
+                    if (score >= bestScore || Blocked(grip.transform.position, item)) continue;
                     best = grip;
                     bestItem = item;
-                    bestScore = distance;
+                    bestScore = score;
                 }
             }
             if (!best || !bestItem.TryHold(this)) return false;
             HeldObject = bestItem;
             ActiveGrip = best;
-            // Snapping the hand onto a grip past the arm limit breaks the grab joint.
-            bool inReach = Vector3.Distance(rig.ShoulderPosition(isLeft), best.transform.position) <= settings.armLength - 0.01f;
-            Vector3 anchor, connected;
-            if (inReach)
-            {
-                Body.position = best.transform.position;
-                Body.rotation = best.transform.rotation;
-                Body.linearVelocity = Vector3.zero;
-                Body.angularVelocity = Vector3.zero;
-                anchor = Vector3.zero;
-                connected = bestItem.transform.InverseTransformPoint(best.transform.position);
-            }
-            else
-            {
-                anchor = transform.InverseTransformPoint(Body.position);
-                connected = bestItem.transform.InverseTransformPoint(Body.position);
-            }
-            CreateJoint(bestItem.Body, anchor, connected,
+            // Keep the physical hand in place. The constraint brings the grip and hand
+            // together while the existing reach joint continues to enforce arm length.
+            if (!best.isActionHandle) Body.rotation = best.transform.rotation;
+            Vector3 connected = bestItem.transform.InverseTransformPoint(best.transform.position);
+            CreateJoint(bestItem.Body, Vector3.zero, connected,
                 bestItem.PrimaryHand == this, settings.grabBreakForce, settings.grabBreakTorque, best);
             rig.IgnoreHeldCollisions(bestItem);
             return true;
@@ -275,12 +266,20 @@ namespace UniversalRig
 
         private bool Blocked(Vector3 point, PhysicsGrabbable item)
         {
-            if ((point - Body.position).sqrMagnitude < 0.0064f) return false;
-            if (!Physics.Linecast(Body.position, point, out RaycastHit hit, settings.environmentMask,
-                QueryTriggerInteraction.Ignore)) return false;
-            if (hit.rigidbody == item.Body) return false;
-            // The gun, its slide and its magazine are jointed together. They are not a wall.
-            return !SameWeapon(hit.rigidbody, item.Body);
+            Vector3 delta = point - Body.position;
+            if (delta.sqrMagnitude < 0.000001f) return false;
+            int count = Physics.RaycastNonAlloc(Body.position, delta.normalized, gripObstructions,
+                delta.magnitude, settings.environmentMask, QueryTriggerInteraction.Ignore);
+            if (count == gripObstructions.Length) return true;
+            for (int i = 0; i < count; i++)
+            {
+                Rigidbody hit = gripObstructions[i].rigidbody;
+                if (hit == Body || hit == item.Body || (rig && (hit == rig.Body ||
+                    (rig.leftHand && hit == rig.leftHand.Body) || (rig.rightHand && hit == rig.rightHand.Body)))) continue;
+                if (SameWeapon(hit, item.Body)) continue;
+                return true;
+            }
+            return false;
         }
 
         static bool SameWeapon(Rigidbody hit, Rigidbody item)
@@ -310,7 +309,7 @@ namespace UniversalRig
             // First hand establishes orientation; second supplies position only so two
             // competing wrist orientations cannot over-constrain a long object.
             jointControlsRotation = lockRotation;
-            ConfigurableJointMotion angular = lockRotation ? ConfigurableJointMotion.Locked : ConfigurableJointMotion.Free;
+            ConfigurableJointMotion angular = lockRotation && !(grip && grip.isActionHandle) ? ConfigurableJointMotion.Locked : ConfigurableJointMotion.Free;
             grabJoint.angularXMotion = grabJoint.angularYMotion = grabJoint.angularZMotion = angular;
             grabJoint.enableCollision = false;
             grabJoint.breakForce = breakForce;

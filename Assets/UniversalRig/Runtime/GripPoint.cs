@@ -16,6 +16,8 @@ namespace UniversalRig
         [Range(0f, 1f)] public float fingerCurl = 1f;
         [Tooltip("When set, the hold joint can slide along actionAxisLocal (gun local space) up to actionTravel.")]
         public bool drivesAction;
+        [Tooltip("Moving handle with its own constrained rigidbody; the hand may rotate freely around it.")]
+        public bool isActionHandle;
         public Vector3 actionAxisLocal = Vector3.back;
         public float actionTravel = 0.05f;
 
