@@ -1,0 +1,74 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 87d65848f7515ffbad6d8acbca9b159f, type: 3}
+  m_Name: SoldierSettings
+  m_EditorClassIdentifier: UniversalRig.Runtime::UniversalRig.RigSettings
+  avatarModel: {fileID: 919132149155446097, guid: 115d875de3f8af84bb820e10da65ef25, type: 3}
+  standingEyeHeight: 1.6689984
+  eyePosition: {x: 0, y: 1.6689984, z: 0.111119404}
+  headBonePosition: {x: 0.000004578875, y: 1.558206, z: -0.018506497}
+  leftShoulderPosition: {x: -0.1949658, y: 1.4294721, z: -0.04749545}
+  rightShoulderPosition: {x: 0.19497393, y: 1.4294707, z: -0.04749544}
+  hipHeight: 0.9534753
+  armLength: 0.4976568
+  leftWristOffset: {x: -0.03333956, y: 0.08334868, z: -6.43692e-10}
+  rightWristOffset: {x: 0.035962, y: 0.089904755, z: 5.714472e-10}
+  leftHandBoneRotation: {x: 0.69568235, y: -0.02979235, z: 0.71686035, w: -0.035356384}
+  rightHandBoneRotation: {x: -0.69236726, y: -0.019391457, z: 0.7206121, w: 0.03114105}
+  handColliderCenter: {x: 0, y: 0.033339467, z: 0}
+  handColliderSize: {x: 0.055565774, y: 0.11113155, z: 0.09377436}
+  bodyRadius: 0.2
+  minimumHeight: 0.75
+  maximumHeight: 2.1
+  headClearance: 0.1
+  bodyMass: 80
+  stepHeight: 0.3
+  groundSpring: 300
+  groundDamping: 32
+  maximumGroundLift: 60
+  maximumGroundSnap: 20
+  groundSnapDistance: 0.15
+  walkSpeed: 2.5
+  acceleration: 15
+  airAcceleration: 3
+  roomFollowSpeed: 3
+  roomFollowGain: 8
+  jumpHeight: 0.8
+  maximumSlope: 50
+  smoothTurnSpeed: 90
+  snapTurn: 0
+  snapAngle: 30
+  stickDeadzone: 0.15
+  maximumHeadSeparation: 0.5
+  handMass: 1
+  handPositionSpring: 650
+  handPositionDamping: 45
+  maximumHandForce: 180
+  handRotationSpring: 120
+  handRotationDamping: 22
+  maximumHandTorque: 25
+  maximumPositionError: 0.35
+  handReaction: 1
+  grabRadius: 0.12
+  grabBreakForce: 1200
+  grabBreakTorque: 120
+  gripPress: 0.65
+  gripRelease: 0.35
+  climbGain: 12
+  maximumClimbSpeed: 2.5
+  maximumClimbAcceleration: 30
+  environmentMask:
+    serializedVersion: 2
+    m_Bits: 4294967039
+  grabbableMask:
+    serializedVersion: 2
+    m_Bits: 4294967039

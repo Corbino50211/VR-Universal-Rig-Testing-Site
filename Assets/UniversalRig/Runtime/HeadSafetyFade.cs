@@ -24,9 +24,11 @@ namespace UniversalRig
         private void Refresh()
         {
             if (!rig || !input || !input.head || !fadeRenderer) return;
-            bool blocked = !input.HeadTracked || Physics.CheckSphere(input.head.position, 0.09f,
-                rig.settings.environmentMask, QueryTriggerInteraction.Ignore) ||
-                RigMath.Planar(input.head.position - rig.transform.position).magnitude > 0.6f;
+            // Comfort policy: the real head can't be stopped, so black out (both eyes; the sphere
+            // surrounds the camera) when it is inside geometry or too far from the body.
+            if (!rig.isActiveAndEnabled) return;
+            bool blocked = !input.HeadTracked || rig.HeadBlocked(input.head.position) ||
+                RigMath.Planar(rig.RootTarget - rig.transform.position).magnitude > rig.settings.maximumHeadSeparation;
             alpha = blocked ? 1f : Mathf.MoveTowards(alpha, 0f, Time.unscaledDeltaTime * 3f);
             properties.SetColor("_BaseColor", new Color(0f, 0f, 0f, alpha));
             fadeRenderer.SetPropertyBlock(properties);

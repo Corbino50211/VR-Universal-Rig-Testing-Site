@@ -29,6 +29,8 @@ namespace UniversalRig
         public float LeftTrigger { get; private set; }
         public float RightTrigger { get; private set; }
         public bool FloorMode { get; private set; }
+        // False until the tracking origin mode has been checked once; don't calibrate before.
+        public bool OriginReady { get; private set; }
         public float RawHeadHeight => headPosition.ReadValue<Vector3>().y + (FloorMode ? 0f : deviceStandingHeight);
 
         private InputActionMap actions;
@@ -38,7 +40,8 @@ namespace UniversalRig
         private InputAction move, turn, leftGrip, rightGrip, leftTrigger, rightTrigger, jump, calibrate;
         private readonly List<XRInputSubsystem> subsystems = new List<XRInputSubsystem>();
         private float nextOriginCheck;
-        private bool jumpQueued, calibrationQueued;
+        private bool jumpQueued, calibrationQueued, recenterQueued;
+        private XRInputSubsystem originSource;
 
         private void Awake()
         {
@@ -84,14 +87,16 @@ namespace UniversalRig
         private void OnDisable()
         {
             Application.onBeforeRender -= RefreshPoses;
+            WatchOrigin(null);
             if (actions != null)
             {
                 jump.performed -= QueueJump;
                 calibrate.performed -= QueueCalibration;
                 actions.Disable();
             }
-            jumpQueued = calibrationQueued = false;
+            jumpQueued = calibrationQueued = recenterQueued = false;
             HeadTracked = LeftTracked = RightTracked = false;
+            OriginReady = false;
             Move = Turn = Vector2.zero;
             LeftGrip = RightGrip = LeftTrigger = RightTrigger = 0f;
         }
@@ -100,12 +105,24 @@ namespace UniversalRig
         private void QueueCalibration(InputAction.CallbackContext _) { calibrationQueued = true; }
         public bool ConsumeJump() { bool result = jumpQueued; jumpQueued = false; return result; }
         public bool ConsumeCalibration() { bool result = calibrationQueued; calibrationQueued = false; return result; }
+        // Set when the runtime recenters (system menu) so the rig can re-align the head over the body.
+        public bool ConsumeRecenter() { bool result = recenterQueued; recenterQueued = false; return result; }
+        private void QueueRecenter(XRInputSubsystem _) { recenterQueued = true; }
+
+        private void WatchOrigin(XRInputSubsystem subsystem)
+        {
+            if (originSource == subsystem) return;
+            if (originSource != null) originSource.trackingOriginUpdated -= QueueRecenter;
+            originSource = subsystem;
+            if (originSource != null) originSource.trackingOriginUpdated += QueueRecenter;
+        }
 
         private void Update()
         {
             if (Time.unscaledTime >= nextOriginCheck)
             {
                 nextOriginCheck = Time.unscaledTime + 1f;
+                bool wasFloor = FloorMode;
                 SubsystemManager.GetSubsystems(subsystems);
                 foreach (XRInputSubsystem subsystem in subsystems)
                 {
@@ -113,8 +130,12 @@ namespace UniversalRig
                     if (subsystem.GetTrackingOriginMode() != TrackingOriginModeFlags.Floor)
                         subsystem.TrySetTrackingOriginMode(TrackingOriginModeFlags.Floor);
                     FloorMode = subsystem.GetTrackingOriginMode() == TrackingOriginModeFlags.Floor;
+                    WatchOrigin(subsystem);
                     break;
                 }
+                // Height calibration measured in the wrong origin mode is invalid; redo it.
+                if (OriginReady && wasFloor != FloorMode) calibrationQueued = true;
+                OriginReady = true;
             }
             RefreshPoses();
             Move = LeftTracked ? Vector2.ClampMagnitude(move.ReadValue<Vector2>(), 1f) : Vector2.zero;

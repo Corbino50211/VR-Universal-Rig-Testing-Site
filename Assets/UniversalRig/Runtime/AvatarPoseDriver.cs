@@ -3,8 +3,10 @@ using UnityEngine;
 
 namespace UniversalRig
 {
-    // Visual pose prototype only. This is not a full-body active ragdoll.
-    // Physical hands/body remain authoritative; this component never moves them.
+    // Visual only: poses the fixed Humanoid avatar from the physical rig every frame. It is the
+    // sole writer of avatar bones (the Animator stays disabled) and never moves physics bodies.
+    // Head/shoulder/wrist placement uses the same RigSettings measurements as the physical
+    // reach joint, so the visible arms end where the physical hands are.
     [DefaultExecutionOrder(100)]
     public sealed class AvatarPoseDriver : MonoBehaviour
     {
@@ -13,15 +15,21 @@ namespace UniversalRig
         public RigInput input;
         public PhysicsHand leftHand;
         public PhysicsHand rightHand;
-        public Vector3 leftWristEuler;
-        public Vector3 rightWristEuler;
-        public float eyeOffsetAboveHeadBone = 0.08f;
-        private Transform hips, head;
-        private float restHipHeight, restEyeHeight;
+        [Tooltip("Finger curl at full grip (degrees): proximal, intermediate, distal.")]
+        public Vector3 fingerCurl = new Vector3(65f, 85f, 55f);
+        public Vector3 thumbCurl = new Vector3(15f, 30f, 30f);
+        [Range(0f, 1f)] public float neckShare = 0.4f;
+        [Tooltip("Largest horizontal hip shift used to keep the avatar's eyes on the camera.")]
+        public float maximumLean = 0.35f;
+
+        private Transform hips, neck, head;
         private Quaternion restHeadRotation;
+        private float restHipHeight;
         private readonly List<Transform> bones = new List<Transform>();
         private readonly List<Quaternion> restRotations = new List<Quaternion>();
         private readonly List<Vector3> restPositions = new List<Vector3>();
+        private readonly List<Finger> leftFingers = new List<Finger>();
+        private readonly List<Finger> rightFingers = new List<Finger>();
         private Limb leftArm, rightArm, leftLeg, rightLeg;
 
         private sealed class Limb
@@ -32,9 +40,18 @@ namespace UniversalRig
             public Quaternion restRotation;
         }
 
+        private struct Finger
+        {
+            public Transform bone;
+            public Quaternion rest;
+            public Vector3 axis;
+            public float angle;
+            public bool index;
+        }
+
         private void Start()
         {
-            if (!avatar || !avatar.isHuman || !avatar.avatar || !avatar.avatar.isValid || !rig || !input)
+            if (!avatar || !avatar.isHuman || !avatar.avatar || !avatar.avatar.isValid || !rig || !input || !rig.settings)
             {
                 Debug.LogError("Universal Rig: visual driver requires a valid Humanoid avatar and rig references.", this);
                 enabled = false;
@@ -51,15 +68,17 @@ namespace UniversalRig
                 restPositions.Add(bone.localPosition);
             }
             hips = avatar.GetBoneTransform(HumanBodyBones.Hips);
+            neck = avatar.GetBoneTransform(HumanBodyBones.Neck);
             head = avatar.GetBoneTransform(HumanBodyBones.Head);
             if (!hips || !head) { enabled = false; return; }
             restHipHeight = transform.InverseTransformPoint(hips.position).y;
-            restEyeHeight = transform.InverseTransformPoint(head.position).y + eyeOffsetAboveHeadBone;
             restHeadRotation = Quaternion.Inverse(transform.rotation) * head.rotation;
             leftArm = MakeLimb(HumanBodyBones.LeftUpperArm, HumanBodyBones.LeftLowerArm, HumanBodyBones.LeftHand);
             rightArm = MakeLimb(HumanBodyBones.RightUpperArm, HumanBodyBones.RightLowerArm, HumanBodyBones.RightHand);
             leftLeg = MakeLimb(HumanBodyBones.LeftUpperLeg, HumanBodyBones.LeftLowerLeg, HumanBodyBones.LeftFoot);
             rightLeg = MakeLimb(HumanBodyBones.RightUpperLeg, HumanBodyBones.RightLowerLeg, HumanBodyBones.RightFoot);
+            MakeFingers(true, leftFingers);
+            MakeFingers(false, rightFingers);
         }
 
         private Limb MakeLimb(HumanBodyBones root, HumanBodyBones mid, HumanBodyBones tip)
@@ -73,26 +92,71 @@ namespace UniversalRig
             return limb;
         }
 
+        // Curl axis per phalanx: rotates the bone toward the palm, measured in the rest pose.
+        private void MakeFingers(bool left, List<Finger> fingers)
+        {
+            HumanBodyBones first = left ? HumanBodyBones.LeftThumbProximal : HumanBodyBones.RightThumbProximal;
+            Transform hand = avatar.GetBoneTransform(left ? HumanBodyBones.LeftHand : HumanBodyBones.RightHand);
+            Transform middle = avatar.GetBoneTransform(first + 6);
+            Transform index = avatar.GetBoneTransform(first + 3);
+            Transform little = avatar.GetBoneTransform(first + 12);
+            if (!hand || !middle || !index || !little) return;
+            Vector3 palm = (left ? 1f : -1f) * Vector3.Cross(index.position - little.position, middle.position - hand.position).normalized;
+            for (int finger = 0; finger < 5; ++finger)
+                for (int joint = 0; joint < 3; ++joint)
+                {
+                    Transform bone = avatar.GetBoneTransform(first + finger * 3 + joint);
+                    if (!bone) continue;
+                    Transform next = joint < 2 ? avatar.GetBoneTransform(first + finger * 3 + joint + 1) : null;
+                    Vector3 direction = next ? next.position - bone.position
+                        : (bone.childCount > 0 ? bone.GetChild(0).position - bone.position : bone.position - bone.parent.position);
+                    Vector3 axis = Vector3.Cross(direction, palm);
+                    if (axis.sqrMagnitude < 0.0000001f) continue;
+                    Vector3 curl = finger == 0 ? thumbCurl : fingerCurl;
+                    fingers.Add(new Finger
+                    {
+                        bone = bone, rest = bone.localRotation, index = finger == 1,
+                        axis = Quaternion.Inverse(bone.rotation) * axis.normalized, angle = curl[joint]
+                    });
+                }
+        }
+
         private void LateUpdate()
         {
             if (!hips || !input.HeadTracked) return;
-            Vector3 forward = RigMath.Planar(input.head.forward);
-            if (forward.sqrMagnitude < 0.001f) forward = transform.forward;
-            transform.SetPositionAndRotation(rig.transform.position, Quaternion.LookRotation(forward, Vector3.up));
+            RigSettings settings = rig.settings;
+            Quaternion headRotation = input.head.rotation;
+            Quaternion yaw = RigMath.Yaw(headRotation);
+            transform.SetPositionAndRotation(rig.transform.position, yaw);
             for (int i = 0; i < bones.Count; ++i)
                 bones[i].SetLocalPositionAndRotation(restPositions[i], restRotations[i]);
-            float eyeHeight = input.head.position.y - rig.transform.position.y;
-            float hipHeight = Mathf.Clamp(restHipHeight + eyeHeight - restEyeHeight, 0.25f, restHipHeight + 0.1f);
-            hips.position += Vector3.up * (hipHeight - restHipHeight);
-            head.rotation = input.head.rotation * restHeadRotation;
-            if (leftHand && input.LeftTracked)
-                Solve(leftArm, leftHand.transform.position, transform.position + transform.rotation * new Vector3(-0.7f, hipHeight, -0.35f),
-                    leftHand.transform.rotation * Quaternion.Euler(leftWristEuler));
-            if (rightHand && input.RightTracked)
-                Solve(rightArm, rightHand.transform.position, transform.position + transform.rotation * new Vector3(0.7f, hipHeight, -0.35f),
-                    rightHand.transform.rotation * Quaternion.Euler(rightWristEuler));
+
+            // Share some of the head turn with the neck, then put the eyes exactly on the camera
+            // by shifting the upper body (bounded lean; crouching lowers the hips).
+            if (neck)
+            {
+                Quaternion relative = Quaternion.Inverse(yaw) * headRotation;
+                neck.rotation = yaw * Quaternion.Slerp(Quaternion.identity, relative, neckShare) * Quaternion.Inverse(yaw) * neck.rotation;
+            }
+            head.rotation = headRotation * restHeadRotation;
+            Vector3 shift = settings.HeadBoneFromEye(input.head.position, headRotation) - head.position;
+            float hipY = Mathf.Clamp(restHipHeight + shift.y, 0.25f, restHipHeight + 0.1f) - restHipHeight;
+            hips.position += Vector3.ClampMagnitude(RigMath.Planar(shift), maximumLean) + Vector3.up * hipY;
+
+            if (leftHand && input.LeftTracked) SolveArm(leftArm, leftHand, settings.leftHandBoneRotation, -1f, yaw);
+            if (rightHand && input.RightTracked) SolveArm(rightArm, rightHand, settings.rightHandBoneRotation, 1f, yaw);
             SolveFoot(leftLeg);
             SolveFoot(rightLeg);
+            CurlFingers(leftFingers, leftHand);
+            CurlFingers(rightFingers, rightHand);
+        }
+
+        private void SolveArm(Limb arm, PhysicsHand hand, Quaternion boneInGrip, float side, Quaternion yaw)
+        {
+            if (arm == null) return;
+            Transform grip = hand.transform;
+            Vector3 pole = arm.root.position + yaw * new Vector3(side * 0.4f, -0.6f, -0.4f);
+            Solve(arm, grip.TransformPoint(hand.WristOffset), pole, grip.rotation * boneInGrip);
         }
 
         private void SolveFoot(Limb limb)
@@ -100,9 +164,19 @@ namespace UniversalRig
             if (limb == null) return;
             Vector3 target = transform.TransformPoint(limb.restTip);
             if (Physics.Raycast(target + Vector3.up * 0.4f, Vector3.down, out RaycastHit hit, 0.8f,
-                rig.settings.environmentMask, QueryTriggerInteraction.Ignore)) target.y = hit.point.y + limb.restTip.y;
-            Solve(limb, target, limb.root.position + transform.forward,
-                transform.rotation * limb.restRotation);
+                rig.settings.environmentMask, QueryTriggerInteraction.Ignore) && !rig.IgnoresBody(hit.collider))
+                target.y = hit.point.y + limb.restTip.y;
+            Solve(limb, target, limb.root.position + transform.forward, transform.rotation * limb.restRotation);
+        }
+
+        private static void CurlFingers(List<Finger> fingers, PhysicsHand hand)
+        {
+            if (!hand) return;
+            float grip = hand.Holding ? 1f : hand.Grip;
+            float index = hand.Holding ? 1f : hand.Trigger;
+            foreach (Finger finger in fingers)
+                finger.bone.localRotation = finger.rest *
+                    Quaternion.AngleAxis((finger.index ? index : grip) * finger.angle, finger.axis);
         }
 
         private static void Solve(Limb limb, Vector3 target, Vector3 pole, Quaternion rotation)

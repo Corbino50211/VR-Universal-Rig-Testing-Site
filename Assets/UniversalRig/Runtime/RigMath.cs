@@ -16,6 +16,31 @@ namespace UniversalRig
 
         public static Vector3 Planar(Vector3 value) => Vector3.ProjectOnPlane(value, Vector3.up);
 
+        // Heading of a head pose. Stable when looking straight up or down: the head's up
+        // vector supplies the heading as the forward vector becomes vertical.
+        public static Quaternion Yaw(Quaternion rotation)
+        {
+            Vector3 forward = rotation * Vector3.forward;
+            Vector3 heading = Planar(forward - rotation * Vector3.up * forward.y);
+            return heading.sqrMagnitude < 0.000001f ? Quaternion.identity : Quaternion.LookRotation(heading, Vector3.up);
+        }
+
+        // Ride-height spring acceleration (excluding gravity support), clamped both ways so a
+        // step-up or landing can never launch the body.
+        public static float GroundSpring(float error, float relativeVelocity, float spring, float damping,
+            float maximumLift, float maximumSnap) =>
+            Mathf.Clamp(spring * error - damping * relativeVelocity, -maximumSnap, maximumLift);
+
+        // Climbing: move the body so the tracked controller target meets the locked hand.
+        // Includes gravity support; speed and total acceleration are bounded so climbing can't
+        // pump energy or launch the player.
+        public static Vector3 ClimbAcceleration(Vector3 handMinusTarget, Vector3 roomVelocity, Vector3 velocity,
+            Vector3 gravity, float gain, float maximumSpeed, float maximumAcceleration, float dt)
+        {
+            Vector3 desired = Vector3.ClampMagnitude(handMinusTarget * gain, maximumSpeed) + roomVelocity;
+            return Vector3.ClampMagnitude((desired - velocity) / dt - gravity, maximumAcceleration);
+        }
+
         // Remove only room-scale motion the body actually completed. A blocked body must
         // never drag the tracking origin backwards by an unfulfilled movement request.
         public static Vector3 CompletedRoomStep(Vector3 actualStep, Vector3 requestedStep)

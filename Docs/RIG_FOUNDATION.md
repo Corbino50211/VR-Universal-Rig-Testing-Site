@@ -1,60 +1,70 @@
-# Universal Rig: first implementation
+# Universal Rig: architecture
 
-Target: Unity **6000.6.5f1**, URP **17.6.0**, Input System **1.20.0**, OpenXR **1.18.0**, PCVR first. The repository also contains XRI **3.6.1**; the new rig owns its movement/grabbing directly and does not need an XRI locomotion stack.
+Target: Unity **6000.6.5f1**, URP **17.6.0**, Input System **1.20.0**, OpenXR **1.18.0**, PCVR first (Quest later). XRI **3.6.1** is installed, but only its simulated HMD/controllers are used, and only in Play Mode tests. The rig owns its own movement and grabbing. Do not add an XR Origin, a CharacterController or an XRI move provider.
 
-The branch also preserves the user's newer `40905d3e28a1f57c0be4871df1a8ce421a2d174a` commit: updated test map/materials, ProBuilder, URP resources and weapon prefabs under `Assets/Weapons/Prefabs`. Inspect those authored prefabs before preparing weapon variants.
+This is original code. It is BONEWORKS-*inspired*, not Stress Level Zero code and not a finished BONEWORKS equivalent. Test evidence is in `RIG_VALIDATION.md`.
 
-The initially inspected base is `fa6a79a9bbbb622137c816dfc5b13855b93e8541`. It contains no existing player rig or BIMOS scripts. This is an original foundation, not Stress Level Zero source code or a finished BONEWORKS-equivalent rig.
+## Quick start
 
-## Quick start in Unity
+1. Clone with Git LFS. The soldier is `Assets/Solder.fbx` (GUID `115d875de3f8af84bb820e10da65ef25`; formerly `Ch15_nonPBR@T-Pose.fbx`, renamed with the same GUID). It is about 115 MB.
+2. Open `Assets/UniversalRig/Generated/RigPhysicsLab.unity` and enter Play Mode with a PCVR OpenXR runtime running.
+3. If anything is missing, run **Tools > Universal Rig > Create Soldier Test Scene**. It refits the avatar, rebuilds `SoldierRig.prefab` and the lab scene, and reuses the existing asset GUIDs.
 
-1. Checkout `codex/rig-foundation` with all Git LFS objects present. Keep local work before switching. The soldier model is approximately 115 MB and cannot be replaced by its 134-byte LFS pointer.
-2. Open the project with its recorded editor version. Wait for package import and compilation; fix any errors before invoking the builder.
-3. Run **Tools > Universal Rig > Create Soldier Test Scene**. This saves existing scene edits through Unity's normal save prompt, opens a new scene, allocates an unused `UniversalRigPhysics` user layer, and creates unique assets under `Assets/UniversalRig/Generated`. It does not overwrite existing scenes, models, settings profiles, or generated prefabs.
-4. Run **Tools > Universal Rig > Set PCVR Physics to 90 Hz**. This explicitly changes the project timestep and maximum allowed timestep; it does not force headset refresh rate or guarantee performance.
-5. Run **Tools > Universal Rig > Validate Active Rig**, then the `UniversalRig.EditModeTests` tests in Test Runner.
-6. Verify OpenXR Standalone startup and the actual controller's interaction profile. Use a running PCVR runtime and a connected headset before testing tracked input.
-7. Enter Play Mode. Stand upright for initial calibration. Move with left stick, turn with right stick, jump with right primary button, recalibrate with left primary button while standing still, and hold/release grip to grab/drop. Trigger values are exposed for the next weapon milestone but do not fire anything yet.
+Controls:
+- Left stick: move, head-relative.
+- Right stick: turn (smooth or snap, set in settings).
+- Right primary button: jump.
+- Left primary button: recalibrate standing height. Stand upright when you press it.
+- Grip: grab items, or grip a `Climbable` to climb.
+- Trigger: the value is exposed on `PhysicsHand.Trigger`. Nothing fires yet.
 
-## What the code does
+## One fixed avatar per game
 
-| Component | Responsibility |
+`RigSettings` (a ScriptableObject) is the per-game avatar profile. To use another avatar in a future game:
+1. Assign `avatarModel` to a Humanoid model.
+2. Select the settings asset and run **Tools > Universal Rig > Fit Avatar (selected Rig Settings)**.
+3. Rebuild the rig.
+
+The fitter measures these from the skeleton:
+- Eyes, head bone, shoulders, hips and arm length.
+- The OpenXR grip-frame wrist offsets and hand-bone rotations.
+- The hand collider.
+
+It also generates a headless first-person mesh. Avatars cannot be switched at runtime, by design.
+
+## Components (each thing has exactly one owner)
+
+| Component | Owns / does |
 |---|---|
-| `RigInput` | Owns tracked transforms, reads a serialized action asset, requests floor origin, falls back to a configurable device height, buffers button presses until physics consumes them. |
-| `PhysicsRig` | Dynamic upright capsule; bounded acceleration; head-relative walking; smooth or snap turning; real crouching; ceiling-tested expansion; ground slope checks; jumping; standing calibration. |
-| `PhysicsHand` | Dynamic collider follows controller targets with bounded force and inertia-aware torque. Tracking loss releases grips and damps velocity. It never snaps a blocked hand through a wall to catch up. |
-| `PhysicsGrabbable` | One/two-hand ownership and cleanup. First hand controls orientation; second controls position; remaining hand becomes primary when the first releases. |
-| `AvatarPoseDriver` | Initial Humanoid visual IK with preserved limb lengths and configurable wrist offsets. No physical limb joints yet. |
-| `HeadSafetyFade` | Black overlay on head obstruction, tracking loss, or excessive horizontal head/body separation; must be checked in both eyes in PCVR. |
-| `RigCollisionFilter` | Ignores collision pairs within this local rig without changing the global collision matrix. |
-| `RigBuilder` / `RigValidator` | Generates the test room/prefab/action asset/settings and checks scene references. |
+| `RigInput` | Tracked head/hand transforms from the action asset. Tracking state. Floor-origin request, with a fallback device height. Buffered button presses. `OriginReady`. Recenter requests from `XRInputSubsystem.trackingOriginUpdated`. |
+| `PhysicsRig` | The tracking space and the body Rigidbody. Floating capsule with its origin at the feet: a SphereCast ground probe plus a bounded ride-height spring, so steps under `stepHeight` (0.3 m) are walked over. Head-relative stick walking, room-scale following and turning. Crouch by shrinking the capsule, with a ceiling check before standing. Slopes, jump, climbing and recentering. Render-interpolation offset applied in `LateUpdate`. Comfort-fade inputs. Held objects ignore collisions with the body. |
+| `PhysicsHand` | The hand Rigidbody. A bounded force/torque PID drives it toward the controller grip pose. A reach joint (ConfigurableJoint, a linear limit of `armLength` from the avatar shoulder) means the physical hand can never leave the visible arm. Equal and opposite force goes into the body when the hand is loaded. Grab joints for `PhysicsGrabbable`. World/kinematic anchor joints for `Climbable`. Tracking loss releases the grip and damps the hand. It is never teleported. |
+| `PhysicsGrabbable` | One- or two-hand ownership. The primary hand controls rotation and the second hand adds position. Handover goes to the remaining hand. |
+| `Climbable` | Marker component. Static or kinematic colliders under it can be gripped and climbed. |
+| `AvatarPoseDriver` | The only writer of bones. The Animator is disabled. Places the root and neck/head, shifts the hips so the head bone sits under the camera, solves two-bone arm IK to the *physical* hands, raycasts the feet to the ground, and curls fingers from the grip and trigger values. |
+| `HeadSafetyFade` | Black fade when the head is inside geometry, when there is a wall between the top of the body capsule and the head, when head tracking is lost, or when head–body separation exceeds `maximumHeadSeparation`. |
+| `RigCollisionFilter` | Ignores collision pairs within the local rig. It does not change the global collision matrix. |
+| `RigBuilder`, `RigAvatarFitter`, `RigValidator` (Editor) | Fit, generate and validate. |
 
-The root remains a stationary container. Tracking Space, Physics Body, both hands, and the soldier are siblings underneath it. Do not parent Tracking Space or the hands to the moving Rigidbody. The capsule origin is at the feet. Root and physics transforms use unit scale. Tracking calibration scales local tracked positions, not rigidbody transforms or the mesh.
+Hierarchy:
+- The root is a stationary container.
+- Tracking Space, Physics Body, both hands and Avatar Visual are its siblings.
+- Never parent Tracking Space or the hands to the moving body.
 
-The body moves toward the head's horizontal position for room-scale walking. The tracking origin receives body displacement after subtracting only the room-scale component actually completed. This is an initial controller and needs combined room-scale/joystick/obstacle testing; its axis allocation is not a full locomotion constraint solver.
+First-person rendering:
+- A headless copy of the skinned mesh renders for the local view.
+- The original mesh is set to ShadowsOnly, so the head still casts a shadow.
 
-## Generated content
+Physics runs at 90 Hz (`Time.fixedDeltaTime = 1/90`, maximum timestep 0.1).
 
-- Soldier source: `Assets/Ch15_nonPBR@T-Pose.fbx` (Humanoid mapping already committed).
-- `Soldier Visual` is intentionally inactive until its actual wrist orientation, eye offset, and first-person head rendering are fitted in Unity. It is already wired to the visual driver. Enable it after those checks, then hide the colored debug hand meshes.
-- The M1911 is included as a **grabbable prop**, if the model is available. Its temporary box collider and 22 cm longest-dimension scale are starting values. Inspect moving mesh parts, real orientation and collision geometry before weapon implementation.
-- Floor, collision wall, low ceiling, ramp, stair obstacles, light/heavy cubes, and a two-hand bar.
-- Stairs are deliberately test obstacles: step assistance is **not implemented** yet. Jumping may be needed until Claude completes locomotion.
+## Known limits
 
-## Known limits / next work
-
-- No full-body active ragdoll, physical elbows/torso/head/legs, arm reach constraints or load transfer into the body yet. Hands can reach beyond the fixed avatar's limbs; visual IK clamps its own limb lengths. Claude must complete physical reach/body integration rather than hide the discrepancy by stretching bones.
-- No climbing, mantling, moving-platform support, virtual crouch, seated mode, finger posing, holsters, damage, networking or saved user calibration.
-- No working firearm, magazine/socket/chamber simulation, recoil or firing audio. These belong after the core is verified; all four requested weapon families remain goals.
-- No automatic physics-hand teleport on tracking reacquisition or snap turns. Forces remain bounded; inspect recovery/lag and constrained two-hand objects in VR.
-- Camera locomotion follows fixed-step body movement. Interpolated presentation and refresh-rate-specific jitter checks remain necessary.
-- Floor/device origin switching and runtime recentering require live runtime tests. The device fallback assumes the user supplies a suitable standing height.
-- The avatar's feet are an initial visual ground projection, not a procedural gait or physical stepping system.
-- Pair filtering is for the current local rig. Reapply/replace filtering if colliders are enabled or added at runtime; multiplayer collision rules are future work.
-- `RigInput` uses one serialized asset per local player. A multiplayer spectator/local-player architecture must assign input ownership explicitly.
-
-## Validation status
-
-No Unity Editor, Unity MCP, or headset is available to the authoring agent. Generated scenes/prefabs, shader rendering, model geometry, Unity compilation, EditMode test execution, and physical feel must be verified on the user's machine. Source syntax/metadata/diff checks are useful but are not Unity compilation or Play Mode evidence.
-
-See `CLAUDE_HANDOFF.md` for the integration work and `CURSOR_HANDOFF_TEMPLATE.md` for the evidence-based next handoff.
+- **No articulated active ragdoll.** Elbows, torso and legs are visual IK only. The physical arm is a reach constraint plus load transfer, not jointed limb bodies.
+- **No procedural gait.** Feet are ground-projected.
+- **Mantling** relies on climbing's room-follow. There is no dedicated vault.
+- **Snap turn** rotates the tracking space, and the hands catch up physically, so held objects swing.
+- **Avatar support:** single skinned-mesh avatars only (`ponytail:` note in `RigBuilder.SetupFirstPersonRenderers`).
+- **Spectator views** (a mirror, a second camera) see the headless mesh.
+- **Wrist and grip offsets** are computed from the skeleton. They still need headset tuning per controller via `PhysicsHand.positionOffset` / `rotationOffset`.
+- **Stereo mode:** URP is in MultiPass. Single Pass Instanced is untested with the fade shader.
+- **Multiplayer:** collision filtering and input ownership are for one local player.

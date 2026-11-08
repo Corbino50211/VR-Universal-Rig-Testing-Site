@@ -41,6 +41,18 @@ namespace UniversalRig.Tests
         }
 
         [Test]
+        public void StickWalkOppositeToRoomScaleStillBooksTheRoomStep()
+        {
+            // Stick forward at 2.5 m/s while the user steps back at 0.5 m/s: the body moves
+            // forward 2.0 m/s. After removing the walk-only step, the room step is booked in full.
+            const float dt = 0.01f;
+            Vector3 walk = Vector3.forward * 2.5f * dt, room = Vector3.back * 0.5f * dt;
+            Near(room, RigMath.CompletedRoomStep(walk + room - walk, room));
+            // Walking blocked by a wall while also stepping into it books nothing.
+            Near(Vector3.zero, RigMath.CompletedRoomStep(Vector3.zero - walk, Vector3.forward * 0.5f * dt));
+        }
+
+        [Test]
         public void CollisionPushOppositeRoomRequestIsPreserved()
         {
             Near(Vector3.zero, RigMath.CompletedRoomStep(Vector3.left * 0.2f, Vector3.right * 0.1f));
@@ -86,6 +98,63 @@ namespace UniversalRig.Tests
             Assert.That(a.x, Is.GreaterThan(0f));
             Assert.That(b.x, Is.LessThan(0f));
             Assert.That(a.z, Is.EqualTo(b.z).Within(0.0001f));
+        }
+
+        [TestCase(0f)]
+        [TestCase(89.9f)]
+        [TestCase(90f)]
+        [TestCase(-90f)]
+        [TestCase(45f)]
+        public void YawKeepsHeadingWhenLookingStraightUpOrDown(float pitch)
+        {
+            Quaternion yaw = RigMath.Yaw(Quaternion.Euler(pitch, 30f, 0f));
+            Near(Quaternion.Euler(0f, 30f, 0f) * Vector3.forward, yaw * Vector3.forward, 0.001f);
+        }
+
+        [Test]
+        public void GroundSpringIsBoundedBothWays()
+        {
+            Assert.That(RigMath.GroundSpring(1f, -20f, 300f, 32f, 60f, 20f), Is.EqualTo(60f));
+            Assert.That(RigMath.GroundSpring(-1f, 20f, 300f, 32f, 60f, 20f), Is.EqualTo(-20f));
+            Assert.That(RigMath.GroundSpring(0f, 0f, 300f, 32f, 60f, 20f), Is.EqualTo(0f));
+        }
+
+        [Test]
+        public void ClimbingHangingStillOnlySupportsWeight()
+        {
+            Vector3 a = RigMath.ClimbAcceleration(Vector3.zero, Vector3.zero, Vector3.zero, Physics.gravity, 12f, 2.5f, 30f, 1f / 90f);
+            Near(-Physics.gravity, a);
+        }
+
+        [Test]
+        public void ClimbingCannotExceedSpeedOrAccelerationLimits()
+        {
+            const float dt = 1f / 90f;
+            // A huge pull (controller yanked 5 m) still targets at most the climb speed and the
+            // total acceleration including gravity support stays within the limit.
+            Vector3 a = RigMath.ClimbAcceleration(Vector3.up * 5f, Vector3.zero, Vector3.zero, Physics.gravity, 12f, 2.5f, 30f, dt);
+            Assert.That(a.magnitude, Is.LessThanOrEqualTo(30.0001f));
+            Vector3 v = Vector3.zero;
+            for (int i = 0; i < 900; ++i) v += (RigMath.ClimbAcceleration(Vector3.up * 5f, Vector3.zero, v, Physics.gravity, 12f, 2.5f, 30f, dt) + Physics.gravity) * dt;
+            Assert.That(v.magnitude, Is.LessThanOrEqualTo(2.5f + 0.05f), "Body speed must converge to the climb speed limit, not grow.");
+        }
+
+        [Test]
+        public void ShouldersAndRootMatchRestPoseWhenEyesAreAtRest()
+        {
+            RigSettings settings = ScriptableObject.CreateInstance<RigSettings>();
+            try
+            {
+                Vector3 offset = new Vector3(2f, 0f, -1f);
+                Quaternion turned = Quaternion.Euler(0f, 90f, 0f);
+                Near(offset + turned * settings.leftShoulderPosition,
+                    settings.ShoulderFromEye(offset + turned * settings.eyePosition, turned, true));
+                Near(offset, settings.RootFromEye(offset + turned * settings.eyePosition, turned));
+                // Looking down pivots about the neck: the head bone moves back, not the eyes.
+                Vector3 head = settings.HeadBoneFromEye(settings.eyePosition, Quaternion.Euler(60f, 0f, 0f));
+                Assert.That(head.z, Is.LessThan(settings.headBonePosition.z));
+            }
+            finally { Object.DestroyImmediate(settings); }
         }
     }
 }

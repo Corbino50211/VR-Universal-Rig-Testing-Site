@@ -27,6 +27,16 @@ namespace UniversalRig.Editor
             Require(rig.leftHand.settings == rig.settings && rig.rightHand.settings == rig.settings &&
                 rig.leftHand.input == input && rig.rightHand.input == input, "Hands must reference this rig's settings and input.");
             Require(rig.leftHand.isLeft && !rig.rightHand.isLeft, "Check hand side assignments.");
+            Require(rig.leftHand.rig == rig && rig.rightHand.rig == rig, "Hands must reference their PhysicsRig (reach joint/body reaction).");
+            Require(rig.settings.armLength > 0.2f && rig.settings.eyePosition.y > 0.5f,
+                "Rig Settings are not fitted. Run Tools/Universal Rig/Fit Avatar.");
+            AvatarPoseDriver[] drivers = UnityEngine.Object.FindObjectsByType<AvatarPoseDriver>(FindObjectsSortMode.None);
+            Require(drivers.Length == 1 && drivers[0].rig == rig && drivers[0].avatar && !drivers[0].avatar.enabled,
+                "Need exactly one active AvatarPoseDriver for this rig with its Animator disabled (single bone owner).");
+            Require(UnityEngine.Object.FindObjectsByType<UnityEngine.InputSystem.XR.TrackedPoseDriver>(FindObjectsSortMode.None).Length == 0,
+                "Remove TrackedPoseDrivers: RigInput is the sole writer of tracked transforms.");
+            Require(UnityEngine.Object.FindObjectsByType<CharacterController>(FindObjectsSortMode.None).Length == 0,
+                "Remove CharacterControllers: PhysicsRig owns locomotion.");
             Require(!rig.GetComponent<Rigidbody>().isKinematic, "Body must be dynamic.");
             Require(input.actionsAsset.FindActionMap("UniversalRig", false) != null, "UniversalRig action map is missing.");
             Require(UnityEngine.Object.FindObjectsByType<AudioListener>(FindObjectsSortMode.None).Length == 1,
