@@ -1,0 +1,8 @@
+{
+  "name": "UniversalRig.EditModeTests",
+  "references": ["UniversalRig.Runtime"],
+  "includePlatforms": ["Editor"],
+  "optionalUnityReferences": ["TestAssemblies"],
+  "defineConstraints": ["UNITY_INCLUDE_TESTS"],
+  "autoReferenced": false
+}

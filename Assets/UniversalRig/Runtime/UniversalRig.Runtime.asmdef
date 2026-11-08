@@ -1,0 +1,6 @@
+{
+  "name": "UniversalRig.Runtime",
+  "rootNamespace": "UniversalRig",
+  "references": ["Unity.InputSystem"],
+  "autoReferenced": true
+}
