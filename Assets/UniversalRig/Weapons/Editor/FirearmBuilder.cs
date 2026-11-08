@@ -1,5 +1,7 @@
 using System.IO;
+using TMPro;
 using UnityEditor;
+using UnityEditor.SceneManagement;
 using UnityEngine;
 using UniversalRig;
 
@@ -140,15 +142,55 @@ namespace UniversalRig.Weapons.Editor
         {
             var go = new GameObject("Label");
             go.transform.position = position;
-            TextMesh mesh = go.AddComponent<TextMesh>();
-            mesh.text = text;
-            mesh.characterSize = 0.035f;
-            mesh.anchor = TextAnchor.MiddleCenter;
-            mesh.alignment = TextAlignment.Center;
-            mesh.color = Color.white;
-            mesh.fontSize = 48;
-            Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-            if (font) mesh.font = font;
+            WorldText(go, text, 0.09f, Color.white, new Vector2(3.4f, 1.6f));
+        }
+
+        static TextMeshPro WorldText(GameObject go, string text, float size, Color color, Vector2 rect)
+        {
+            TextMeshPro tmp = go.AddComponent<TextMeshPro>();
+            tmp.font = LabelFont();
+            tmp.text = text;
+            tmp.fontSize = size;
+            tmp.color = color;
+            tmp.alignment = TextAlignmentOptions.Center;
+            tmp.textWrappingMode = TextWrappingModes.Normal;
+            tmp.overflowMode = TextOverflowModes.Overflow;
+            tmp.rectTransform.sizeDelta = rect;
+            return tmp;
+        }
+
+        static TMP_FontAsset LabelFont()
+        {
+            const string path = "Assets/TextMesh Pro/Resources/Fonts & Materials/LiberationSans SDF.asset";
+            TMP_FontAsset font = AssetDatabase.LoadAssetAtPath<TMP_FontAsset>(path);
+            if (!font) throw new System.InvalidOperationException("Missing TextMesh Pro font at " + path);
+            return font;
+        }
+
+        // Swaps leftover legacy TextMesh signs in the open lab for TextMeshPro.
+        public static void ReplaceSceneLabels()
+        {
+            TMP_FontAsset font = LabelFont();
+            TextMesh[] legacy = Object.FindObjectsByType<TextMesh>(FindObjectsInactive.Include);
+            foreach (TextMesh old in legacy)
+            {
+                if (PrefabUtility.IsPartOfPrefabInstance(old)) continue;
+                GameObject go = old.gameObject;
+                string text = old.text;
+                Color color = old.color;
+                Vector3 position = go.transform.position;
+                Quaternion rotation = go.transform.rotation;
+                Transform parent = go.transform.parent;
+                Object.DestroyImmediate(old);
+                MeshRenderer renderer = go.GetComponent<MeshRenderer>();
+                if (renderer) Object.DestroyImmediate(renderer);
+                MeshFilter filter = go.GetComponent<MeshFilter>();
+                if (filter) Object.DestroyImmediate(filter);
+                TextMeshPro tmp = WorldText(go, text, go.name == "Fire mode" ? 0.045f : 0.09f, color, go.name == "Fire mode" ? new Vector2(0.4f, 0.12f) : new Vector2(3.4f, 1.6f));
+                tmp.font = font;
+                go.transform.SetParent(parent, true);
+                go.transform.SetPositionAndRotation(position, rotation);
+            }
         }
 
         static FirearmProfile Profile(string name, System.Action<FirearmProfile> fill)
@@ -287,14 +329,9 @@ namespace UniversalRig.Weapons.Editor
             light.enabled = false;
             light.transform.SetParent(muzzle, false);
 
-            TextMesh mode = new GameObject("Fire mode").AddComponent<TextMesh>();
+            TextMeshPro mode = WorldText(new GameObject("Fire mode"), "SEMI", 0.045f, new Color(1f, 0.85f, 0.2f), new Vector2(0.4f, 0.12f));
             mode.transform.SetParent(gun.transform, true);
             mode.transform.position = primary.position + gunUp * 0.06f;
-            mode.characterSize = 0.02f;
-            mode.fontSize = 48;
-            mode.anchor = TextAnchor.MiddleCenter;
-            mode.color = new Color(1f, 0.85f, 0.2f);
-            mode.text = "SEMI";
 
             Firearm firearm = gun.AddComponent<Firearm>();
             firearm.profile = profile;

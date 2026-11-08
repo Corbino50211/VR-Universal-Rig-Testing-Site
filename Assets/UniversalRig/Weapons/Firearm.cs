@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using TMPro;
 using UnityEngine;
 using UniversalRig;
 
@@ -23,7 +24,7 @@ namespace UniversalRig.Weapons
         public Transform selector;
         public Transform triggerVisual;
         public Transform hammerVisual;
-        public TextMesh modeLabel;
+        public TMP_Text modeLabel;
         public Light muzzleLight;
 
         public Rigidbody Body => body ? body : body = GetComponent<Rigidbody>();
