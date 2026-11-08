@@ -1,6 +1,6 @@
 # Universal Rig: validation record
 
-Last updated 2026-11-08 by Claude Code (Opus 5.5), working through the Unity MCP in the user's live editor.
+Last updated 2026-11-08. Rig foundation by Claude Code (Opus 5.5). Firearm milestone in the same editor: EditMode 28/28, rig PlayMode 17/17, firearm PlayMode 3/7 (details in section 4). Headset testing has still not been run.
 
 **Headset testing has NOT been run.** Everything below comes from either automated tests or simulated XR devices in the editor. Results are kept in three separate sections: automated, simulated and headset.
 
@@ -139,6 +139,62 @@ None of these have been run. Each needs a person in the headset.
 8. Crouch, stairs, ramps and jump comfort.
 9. Visual: elbows, hip shift, foot placement and finger curl on the actual soldier; head and helmet clipping into the view.
 10. Runtime CPU/GPU timing and GC in a headset build (development build profiler).
+
+## 4. Firearms (simulated input only)
+
+Headset checks in section 3 are still **not run**. Nothing in this section is a headset result.
+
+### Part inventory (editor, 2026-11-08)
+
+Every named part below is its own `MeshFilter` with its own transform. No fused part, so no model variant was made. Original imports and `Assets/Weapons/Prefabs` are unchanged. Prefab variants are under `Assets/UniversalRig/Weapons/Generated/Prefabs/`.
+
+| Prefab | Part | Pivot |
+|---|---|---|
+| M1911 | Slide, Magazin, Hammer, Trigger | Separate. The prefab root is a Cinema 4D node rotated about 51° yaw; the builder places grips from the mesh bounds, not from that root. Magazin pivot is at the top of the mag (local X rotation about 339°). Slide pivot is at the rear of the slide. |
+| Uzi | Bolt, Magazin, Stock, Stock_01, Trigger | Separate. Magazin pivot is at the top of the stick. Bolt pivot is on the bolt. |
+| AK74 | Bolt, Mag, Trigger | Separate meshes. Mag and Trigger pivots sit at the weapon origin, not on the part. The physical magazine recenters the mesh bounds; the import was not edited. |
+| M4_8 | Bolt, Mag, Sight, Rear_Sight, Trigger | Separate. Bolt pivot is at the charging handle. Mag pivot is at the weapon origin (same treatment as the AK). |
+| Bennelli_M4 | Pump, Trigger | Separate. No tube or shell mesh in the import. Shells are a red box named `TEMPORARY shell` (`Bullets.fbx` has no shotshell). |
+
+### Hit model
+
+Hitscan. The ray starts `muzzleBackoff` (0.08 m) behind the muzzle. `RigMath.SelectShotHit` skips the gun, a seated magazine, the action handle, and the local rig (`IgnoresBody` plus anything under the rig root). A hit at or behind the muzzle is the wall the barrel is buried in; the ray does not continue. Damage is only `IHitReceiver.ReceiveHit`. The lab board is a `HitTarget`. Colliders without that component get a spark and nothing else.
+
+### Simulated results (XRI devices, real `SoldierInput` bindings)
+
+EditMode `UniversalRig.EditModeTests`: **28/28** (the previous 25, plus bounded impulse, cone direction, and shot selection).
+
+Rig PlayMode `RigPlayModeTests`, rerun after the grip and firearm changes: **17/17**.
+
+Firearm PlayMode `FirearmPlayModeTests`, one complete run after the slide-rail fix: **3 pass / 4 fail**.
+
+| Test | Result |
+|---|---|
+| GrabReleaseSwapAndTrackingLoss | Pass. Primary grip grab, release, other hand takes the gun, tracking loss drops it. |
+| MuzzleWallStopsTheShot | Pass. A wall in front of the muzzle is hit. A target behind it is not. |
+| OneClickFiresOneRoundWhenTheFrameRateChanges | Pass. One trigger click at `fixedDeltaTime` 1/30 and `captureFramerate` 20 fires one round and chambers the next. |
+| EmptyFireReloadAccountingAndDrop | Fail. The support hand did not take the slide (hand stayed about 6 cm short of the handle). |
+| RecoilIsWeakerBracedAndDoesNotPropelTheBody | Fail. The second hand grabbed the slide handle instead of the frame's support grip. |
+| ShotgunLoadsFromThePortAndMustBePumped | Fail. The gun did fire (`ShotsFired == 1`, pump required before the next shot) but the plate 3 m downrange recorded no `HitTarget` hit. |
+| UziChargesFromTheBoltAndTheRifleChangesFireMode | Fail. The bolt was grabbed. `Open01` stayed 0, so it did not cock. |
+
+An earlier full PlayMode run in the same session (rig + firearms together) was 19 pass / 5 fail. All 17 rig tests passed in that run too. The firearm failures were the action-hand tests, not locomotion.
+
+Haptics: `SendHapticImpulseCommand` exists on Input System 1.20.0 (`XRControllerWithRumble.SendImpulse` calls it). `RigInput.Pulse` sends that command. Simulated controllers do not prove the headset motor.
+
+Audio: no firearm clip exists in the project. The three synthesized clips are named `TEMPORARY firearm shot`, `TEMPORARY firearm dry fire`, and `TEMPORARY firearm mechanism`.
+
+### What to try in the headset
+
+Open `Assets/UniversalRig/Generated/RigPhysicsLab.unity`. Section 3 is still the rig checklist. For the guns, turn around to the bench at the back (and the M1911 on the original table):
+
+- Grip the pistol grip. The hand should sit on the authored grip, not on the nearest collider.
+- Trigger fires only with a round in the chamber. An empty gun clicks.
+- The other hand grabs the slide, bolt, or pump and racks it. Releasing a magazine into the well seats it with a joint, not by parenting. A partial insert (still in the hand, or pulled away) does not move rounds.
+- Other hand's trigger on the small selector cube switches SEMI / AUTO on the Uzi, AK, and M4.
+- Red boxes are temporary shells for the Benelli. Push one into the port, then pump.
+- Firing or shoving the gun into the floor should not launch you.
+- Sounds are temporary synthesized noises, not recordings.
 
 ## Unresolved issues / provisional decisions
 

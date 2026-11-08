@@ -1,6 +1,6 @@
 {
   "name": "UniversalRig.PlayModeTests",
-  "references": ["UniversalRig.Runtime", "Unity.InputSystem", "Unity.XR.Interaction.Toolkit"],
+    "references": ["UniversalRig.Runtime", "UniversalRig.Weapons", "Unity.InputSystem", "Unity.XR.Interaction.Toolkit"],
   "optionalUnityReferences": ["TestAssemblies"],
   "defineConstraints": ["UNITY_INCLUDE_TESTS"],
   "autoReferenced": false

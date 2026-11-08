@@ -307,7 +307,21 @@ namespace UniversalRig
                 if (bodyIgnored.Contains(collider) && !pendingRestore.Contains(collider)) pendingRestore.Add(collider);
         }
 
-        public bool IgnoresBody(Collider collider) => bodyIgnored.Contains(collider);
+        public bool IgnoresBody(Collider collider) => collider && bodyIgnored.Contains(collider);
+
+        // Extra colliders on a held weapon (a seated magazine, a slide) that are not children of it.
+        public void IgnoreCollider(Collider collider)
+        {
+            if (!collider || !Capsule) return;
+            if (bodyIgnored.Add(collider)) Physics.IgnoreCollision(Capsule, collider, true);
+            pendingRestore.Remove(collider);
+        }
+
+        public void QueueRestoreCollider(Collider collider)
+        {
+            if (!collider || !bodyIgnored.Contains(collider) || pendingRestore.Contains(collider)) return;
+            pendingRestore.Add(collider);
+        }
 
         private void RestoreReleasedCollisions()
         {

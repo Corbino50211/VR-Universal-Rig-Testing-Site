@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using UnityEngine.InputSystem.XR.Haptics;
 using UnityEngine.XR;
 
 namespace UniversalRig
@@ -144,6 +145,19 @@ namespace UniversalRig
             RightGrip = RightTracked ? rightGrip.ReadValue<float>() : 0f;
             LeftTrigger = LeftTracked ? leftTrigger.ReadValue<float>() : 0f;
             RightTrigger = RightTracked ? rightTrigger.ReadValue<float>() : 0f;
+        }
+
+        // Input System 1.20 XR haptic command. No-op when the binding has no device (editor without a runtime).
+        public void Pulse(bool left, float amplitude, float duration)
+        {
+            InputAction action = left ? leftGrip : rightGrip;
+            if (action == null) return;
+            UnityEngine.InputSystem.InputDevice device = action.activeControl != null ? action.activeControl.device
+                : (action.controls.Count > 0 ? action.controls[0].device : null);
+            if (device == null) return;
+            SendHapticImpulseCommand command = SendHapticImpulseCommand.Create(0,
+                Mathf.Clamp01(amplitude), Mathf.Clamp(duration, 0f, 0.1f));
+            device.ExecuteCommand(ref command);
         }
 
         public void RefreshPoses()

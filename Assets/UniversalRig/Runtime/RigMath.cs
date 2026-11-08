@@ -70,5 +70,46 @@ namespace UniversalRig
             float height = Mathf.Sqrt(Mathf.Max(0f, upperLength * upperLength - along * along));
             return root + direction * along + bend.normalized * height;
         }
+
+        // Impulse along direction, clamped so a shot cannot exceed a known momentum budget.
+        public static Vector3 BoundedImpulse(Vector3 direction, float strength, float maximum)
+        {
+            float mag = direction.magnitude;
+            if (mag < 0.000001f || maximum <= 0f || strength <= 0f) return Vector3.zero;
+            return direction / mag * Mathf.Min(strength, maximum);
+        }
+
+        // Direction inside a cone. radius01/turn01 are 0..1; zero degrees stays on forward.
+        public static Vector3 ConeDirection(Vector3 forward, float degrees, float radius01, float turn01)
+        {
+            forward = forward.sqrMagnitude < 0.000001f ? Vector3.forward : forward.normalized;
+            float radius = Mathf.Tan(Mathf.Max(0f, degrees) * Mathf.Deg2Rad) * Mathf.Sqrt(Mathf.Clamp01(radius01));
+            float turn = Mathf.Clamp01(turn01) * (Mathf.PI * 2f);
+            Vector3 axis = Mathf.Abs(forward.y) < 0.99f ? Vector3.up : Vector3.right;
+            Vector3 side = Vector3.Cross(forward, axis).normalized;
+            Vector3 up = Vector3.Cross(side, forward);
+            return (forward + (side * Mathf.Cos(turn) + up * Mathf.Sin(turn)) * radius).normalized;
+        }
+
+        // First non-ignored hit. Obstructed when that hit is at or behind the muzzle
+        // (distance from a point behind the muzzle is within backoff + slack), so a buried
+        // muzzle cannot select a target past the contact.
+        public static int SelectShotHit(float[] distances, bool[] ignored, int count, float backoff, float slack,
+            out bool obstructed)
+        {
+            obstructed = false;
+            int best = -1;
+            float bestDistance = float.PositiveInfinity;
+            int n = Mathf.Min(count, distances == null ? 0 : distances.Length);
+            for (int i = 0; i < n; ++i)
+            {
+                if (ignored != null && i < ignored.Length && ignored[i]) continue;
+                if (distances[i] < 0f || distances[i] >= bestDistance) continue;
+                bestDistance = distances[i];
+                best = i;
+            }
+            if (best >= 0) obstructed = bestDistance <= backoff + Mathf.Max(0f, slack);
+            return best;
+        }
     }
 }

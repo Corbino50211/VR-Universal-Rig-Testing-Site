@@ -172,8 +172,10 @@ namespace UniversalRig
         private static void CurlFingers(List<Finger> fingers, PhysicsHand hand)
         {
             if (!hand) return;
-            float grip = hand.Holding ? 1f : hand.Grip;
-            float index = hand.Holding ? 1f : hand.Trigger;
+            GripPoint gripPoint = hand.ActiveGrip;
+            float grip = gripPoint ? gripPoint.fingerCurl : hand.Holding ? 1f : hand.Grip;
+            // A weapon grip keeps the index on the trigger; a plain grab still closes it.
+            float index = gripPoint ? hand.Trigger : hand.Holding ? 1f : hand.Trigger;
             foreach (Finger finger in fingers)
                 finger.bone.localRotation = finger.rest *
                     Quaternion.AngleAxis((finger.index ? index : grip) * finger.angle, finger.axis);

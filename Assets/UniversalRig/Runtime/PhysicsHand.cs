@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace UniversalRig
@@ -19,18 +20,21 @@ namespace UniversalRig
         public Vector3 rotationOffset;
         public Rigidbody Body { get; private set; }
         public PhysicsGrabbable HeldObject { get; private set; }
+        public GripPoint ActiveGrip { get; private set; }
         // True while gripping a Climbable surface (hand locked to the world/kinematic body).
         public bool Anchored { get; private set; }
         public bool Holding => HeldObject || Anchored;
         public float TrackingError { get; private set; }
         public float Grip => !input ? 0f : (isLeft ? input.LeftGrip : input.RightGrip);
         public float Trigger => !input ? 0f : (isLeft ? input.LeftTrigger : input.RightTrigger);
+        public void Pulse(float amplitude, float duration) { if (input) input.Pulse(isLeft, amplitude, duration); }
         public Vector3 WristOffset => isLeft ? settings.leftWristOffset : settings.rightWristOffset;
         public Vector3 TargetPosition => Target.TransformPoint(positionOffset);
         public Quaternion TargetRotation => Target.rotation * Quaternion.Euler(rotationOffset);
         private Transform Target => isLeft ? input.leftTarget : input.rightTarget;
 
         private ConfigurableJoint grabJoint, reachJoint;
+        private readonly List<GripPoint> gripBuffer = new List<GripPoint>(8);
         private bool jointControlsRotation;
         private Collider climbCollider;
         private readonly Collider[] nearby = new Collider[32];
@@ -141,10 +145,11 @@ namespace UniversalRig
             }
             float grip = Grip;
             if (grip <= settings.gripRelease) { Release(); gripArmed = true; }
-            else if (gripArmed && grip >= settings.gripPress)
+            else if (grip >= settings.gripPress)
             {
-                gripArmed = false;
-                TryGrab();
+                // A closed hand can meet an object. Stop retrying once something is held.
+                if (!Holding && gripArmed) TryGrab();
+                if (Holding) gripArmed = false;
             }
         }
 
@@ -152,7 +157,10 @@ namespace UniversalRig
 
         private void TryGrab()
         {
-            int count = Physics.OverlapSphereNonAlloc(Body.position, settings.grabRadius, nearby,
+            int count = Physics.OverlapSphereNonAlloc(Body.position, Mathf.Max(settings.grabRadius, 0.2f), nearby,
+                settings.grabbableMask, QueryTriggerInteraction.Ignore);
+            if (TryGrabGrip(count)) return;
+            count = Physics.OverlapSphereNonAlloc(Body.position, settings.grabRadius, nearby,
                 settings.grabbableMask, QueryTriggerInteraction.Ignore);
             PhysicsGrabbable bestItem = null;
             Collider bestCollider = null;
@@ -198,8 +206,100 @@ namespace UniversalRig
             Anchored = true;
         }
 
+        // Authored grips win over the closest point. The first hand takes a primary grip when
+        // the object has one; the other hand takes a support grip.
+        private bool TryGrabGrip(int count)
+        {
+            GripPoint best = null;
+            PhysicsGrabbable bestItem = null;
+            float bestScore = float.PositiveInfinity;
+            // A little past the touch radius: the arm limit can leave the hand short of a slide.
+            float radiusSqr = Mathf.Max(settings.grabRadius, 0.18f);
+            radiusSqr *= radiusSqr;
+            for (int i = 0; i < count; ++i)
+            {
+                Collider candidate = nearby[i];
+                if (!candidate) continue;
+                Rigidbody body = candidate.attachedRigidbody;
+                PhysicsGrabbable item = body ? body.GetComponent<PhysicsGrabbable>() : null;
+                if (!item || !item.isActiveAndEnabled || item.Body.isKinematic || item.HoldingHands >= item.maximumHands)
+                    continue;
+                item.GetComponentsInChildren(gripBuffer);
+                bool anyPrimary = false, anySupport = false;
+                for (int g = 0; g < gripBuffer.Count; ++g)
+                {
+                    if (!gripBuffer[g] || !gripBuffer[g].isActiveAndEnabled || !gripBuffer[g].Allows(isLeft)) continue;
+                    if (gripBuffer[g].role == GripPoint.Role.Primary) anyPrimary = true;
+                    else anySupport = true;
+                }
+                bool held = item.HoldingHands > 0;
+                for (int g = 0; g < gripBuffer.Count; ++g)
+                {
+                    GripPoint grip = gripBuffer[g];
+                    if (!grip || !grip.isActiveAndEnabled || !grip.Allows(isLeft)) continue;
+                    if (!held && grip.role == GripPoint.Role.Support && anyPrimary) continue;
+                    if (held && grip.role == GripPoint.Role.Primary && anySupport) continue;
+                    float distance = (grip.transform.position - Body.position).sqrMagnitude;
+                    if (distance > radiusSqr || distance >= bestScore) continue;
+                    if (Blocked(grip.transform.position, item)) continue;
+                    best = grip;
+                    bestItem = item;
+                    bestScore = distance;
+                }
+            }
+            if (!best || !bestItem.TryHold(this)) return false;
+            HeldObject = bestItem;
+            ActiveGrip = best;
+            // Snapping the hand onto a grip past the arm limit breaks the grab joint.
+            bool inReach = Vector3.Distance(rig.ShoulderPosition(isLeft), best.transform.position) <= settings.armLength - 0.01f;
+            Vector3 anchor, connected;
+            if (inReach)
+            {
+                Body.position = best.transform.position;
+                Body.rotation = best.transform.rotation;
+                Body.linearVelocity = Vector3.zero;
+                Body.angularVelocity = Vector3.zero;
+                anchor = Vector3.zero;
+                connected = bestItem.transform.InverseTransformPoint(best.transform.position);
+            }
+            else
+            {
+                anchor = transform.InverseTransformPoint(Body.position);
+                connected = bestItem.transform.InverseTransformPoint(Body.position);
+            }
+            CreateJoint(bestItem.Body, anchor, connected,
+                bestItem.PrimaryHand == this, settings.grabBreakForce, settings.grabBreakTorque, best);
+            rig.IgnoreHeldCollisions(bestItem);
+            return true;
+        }
+
+        private bool Blocked(Vector3 point, PhysicsGrabbable item)
+        {
+            if ((point - Body.position).sqrMagnitude < 0.0064f) return false;
+            if (!Physics.Linecast(Body.position, point, out RaycastHit hit, settings.environmentMask,
+                QueryTriggerInteraction.Ignore)) return false;
+            if (hit.rigidbody == item.Body) return false;
+            // The gun, its slide and its magazine are jointed together. They are not a wall.
+            return !SameWeapon(hit.rigidbody, item.Body);
+        }
+
+        static bool SameWeapon(Rigidbody hit, Rigidbody item)
+        {
+            if (!hit || !item) return false;
+            Rigidbody root = Anchor(item);
+            return hit == root || Anchor(hit) == root;
+        }
+
+        static Rigidbody Anchor(Rigidbody body)
+        {
+            Joint[] joints = body.GetComponents<Joint>();
+            for (int i = 0; i < joints.Length; ++i)
+                if (joints[i] && joints[i].connectedBody) return joints[i].connectedBody;
+            return body;
+        }
+
         private void CreateJoint(Rigidbody connected, Vector3 anchor, Vector3 connectedAnchor, bool lockRotation,
-            float breakForce, float breakTorque)
+            float breakForce, float breakTorque, GripPoint grip = null)
         {
             grabJoint = gameObject.AddComponent<ConfigurableJoint>();
             grabJoint.connectedBody = connected; // null = anchored to the world
@@ -216,6 +316,12 @@ namespace UniversalRig
             grabJoint.breakForce = breakForce;
             grabJoint.breakTorque = breakTorque;
             grabJoint.projectionMode = JointProjectionMode.None;
+            if (!grip || !grip.drivesAction || grip.actionTravel <= 0f || !HeldObject) return;
+            Vector3 worldAxis = HeldObject.transform.TransformDirection(grip.actionAxisLocal);
+            if (worldAxis.sqrMagnitude < 0.000001f) return;
+            grabJoint.axis = Quaternion.Inverse(transform.rotation) * worldAxis.normalized;
+            grabJoint.xMotion = ConfigurableJointMotion.Limited;
+            grabJoint.linearLimit = new SoftJointLimit { limit = grip.actionTravel };
         }
 
         public void Release()
@@ -223,6 +329,7 @@ namespace UniversalRig
             RemoveJoint();
             PhysicsGrabbable item = HeldObject;
             HeldObject = null;
+            ActiveGrip = null;
             Anchored = false;
             climbCollider = null;
             if (item)
