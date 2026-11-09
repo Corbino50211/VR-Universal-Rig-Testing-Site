@@ -1,6 +1,6 @@
 # Universal Rig: validation record
 
-Last updated 2026-11-08 by Claude Code (Opus 5.5), working through the Unity MCP in the user's live editor.
+Last updated 2026-11-08. Rig foundation by Claude Code (Opus 5.5). Firearm milestone in the same editor: EditMode 28/28, rig PlayMode 17/17, firearm PlayMode 3/7 (details in section 4). Headset testing has still not been run.
 
 **Headset testing has NOT been run.** Everything below comes from either automated tests or simulated XR devices in the editor. Results are kept in three separate sections: automated, simulated and headset.
 
@@ -140,6 +140,62 @@ None of these have been run. Each needs a person in the headset.
 9. Visual: elbows, hip shift, foot placement and finger curl on the actual soldier; head and helmet clipping into the view.
 10. Runtime CPU/GPU timing and GC in a headset build (development build profiler).
 
+## 4. Firearms (simulated input only)
+
+Headset checks in section 3 are still **not run**. Nothing in this section is a headset result.
+
+### Part inventory (editor, 2026-11-08)
+
+Every named part below is its own `MeshFilter` with its own transform. No fused part, so no model variant was made. Original imports and `Assets/Weapons/Prefabs` are unchanged. Prefab variants are under `Assets/UniversalRig/Weapons/Generated/Prefabs/`.
+
+| Prefab | Part | Pivot |
+|---|---|---|
+| M1911 | Slide, Magazin, Hammer, Trigger | Separate. The prefab root is a Cinema 4D node rotated about 51° yaw; the builder places grips from the mesh bounds, not from that root. Magazin pivot is at the top of the mag (local X rotation about 339°). Slide pivot is at the rear of the slide. |
+| Uzi | Bolt, Magazin, Stock, Stock_01, Trigger | Separate. Magazin pivot is at the top of the stick. Bolt pivot is on the bolt. |
+| AK74 | Bolt, Mag, Trigger | Separate meshes. Mag and Trigger pivots sit at the weapon origin, not on the part. The physical magazine recenters the mesh bounds; the import was not edited. |
+| M4_8 | Bolt, Mag, Sight, Rear_Sight, Trigger | Separate. Bolt pivot is at the charging handle. Mag pivot is at the weapon origin (same treatment as the AK). |
+| Bennelli_M4 | Pump, Trigger | Separate. No tube or shell mesh in the import. Shells are a red box named `TEMPORARY shell` (`Bullets.fbx` has no shotshell). |
+
+### Hit model
+
+Hitscan. The ray starts `muzzleBackoff` (0.08 m) behind the muzzle. `RigMath.SelectShotHit` skips the gun, a seated magazine, the action handle, and the local rig (`IgnoresBody` plus anything under the rig root). A hit at or behind the muzzle is the wall the barrel is buried in; the ray does not continue. Damage is only `IHitReceiver.ReceiveHit`. The lab board is a `HitTarget`. Colliders without that component get a spark and nothing else.
+
+### Simulated results (XRI devices, real `SoldierInput` bindings)
+
+EditMode `UniversalRig.EditModeTests`: **28/28** (the previous 25, plus bounded impulse, cone direction, and shot selection).
+
+Rig PlayMode `RigPlayModeTests`, rerun after the grip and firearm changes: **17/17**.
+
+Firearm PlayMode `FirearmPlayModeTests`, one complete run after the slide-rail fix: **3 pass / 4 fail**.
+
+| Test | Result |
+|---|---|
+| GrabReleaseSwapAndTrackingLoss | Pass. Primary grip grab, release, other hand takes the gun, tracking loss drops it. |
+| MuzzleWallStopsTheShot | Pass. A wall in front of the muzzle is hit. A target behind it is not. |
+| OneClickFiresOneRoundWhenTheFrameRateChanges | Pass. One trigger click at `fixedDeltaTime` 1/30 and `captureFramerate` 20 fires one round and chambers the next. |
+| EmptyFireReloadAccountingAndDrop | Fail. The support hand did not take the slide (hand stayed about 6 cm short of the handle). |
+| RecoilIsWeakerBracedAndDoesNotPropelTheBody | Fail. The second hand grabbed the slide handle instead of the frame's support grip. |
+| ShotgunLoadsFromThePortAndMustBePumped | Fail. The gun did fire (`ShotsFired == 1`, pump required before the next shot) but the plate 3 m downrange recorded no `HitTarget` hit. |
+| UziChargesFromTheBoltAndTheRifleChangesFireMode | Fail. The bolt was grabbed. `Open01` stayed 0, so it did not cock. |
+
+An earlier full PlayMode run in the same session (rig + firearms together) was 19 pass / 5 fail. All 17 rig tests passed in that run too. The firearm failures were the action-hand tests, not locomotion.
+
+Haptics: `SendHapticImpulseCommand` exists on Input System 1.20.0 (`XRControllerWithRumble.SendImpulse` calls it). `RigInput.Pulse` sends that command. Simulated controllers do not prove the headset motor.
+
+Audio: no firearm clip exists in the project. The three synthesized clips are named `TEMPORARY firearm shot`, `TEMPORARY firearm dry fire`, and `TEMPORARY firearm mechanism`.
+
+### What to try in the headset
+
+Open `Assets/UniversalRig/Generated/RigPhysicsLab.unity`. Section 3 is still the rig checklist. For the guns, turn around to the bench at the back (and the M1911 on the original table):
+
+- Grip the pistol grip. The hand should sit on the authored grip, not on the nearest collider.
+- Trigger fires only with a round in the chamber. An empty gun clicks.
+- The other hand grabs the slide, bolt, or pump and racks it. Releasing a magazine into the well seats it with a joint, not by parenting. A partial insert (still in the hand, or pulled away) does not move rounds.
+- Other hand's trigger on the small selector cube switches SEMI / AUTO on the Uzi, AK, and M4.
+- Red boxes are temporary shells for the Benelli. Push one into the port, then pump.
+- Firing or shoving the gun into the floor should not launch you.
+- Sounds are temporary synthesized noises, not recordings.
+
 ## Unresolved issues / provisional decisions
 
 - No articulated active ragdoll. Elbows, torso and legs are visual only, and the physical arm is a reach constraint.
@@ -148,3 +204,72 @@ None of these have been run. Each needs a person in the headset.
 - Spectator or mirror cameras see the headless mesh.
 - `RigBuilder.SetupFirstPersonRenderers` handles a single skinned mesh (`ponytail:` note).
 - Interpolation offset: the tracking space is shifted by the body's render-interpolation delta in LateUpdate. It is smooth in the editor. Check judder on the headset.
+
+
+## 5. Firearm review corrections (2026-11-08, Codex)
+
+These changes are based on Cursor's TextMeshPro commit `ebe94db`. The TMP labels,
+scene, generated prefabs, builder, and assembly references are preserved.
+
+- Action handles now use a centered, one-axis limited joint with locked lateral
+  motion. A bounded, timestep-stabilized spring applies equal/opposite forces to
+  the handle and gun. Runtime code no longer assigns the handle's position or
+  reads the tracked controller to move it. The action hand's angular constraint
+  is free, preventing wrist orientation from fighting the rail.
+- Authored grips use controller intent to distinguish neighboring support/action
+  grips, while still requiring physical hand proximity. The physical hand is no
+  longer teleported to a grip. Obstruction checks inspect all ray hits and skip
+  the rig hands and connected weapon bodies, without the old 8 cm wall bypass.
+- Magazines have exclusive socket ownership. Missing/broken joints and disabled
+  magazines clear the socket and release collision exclusions. Two sockets cannot
+  claim one magazine.
+- Action tests pull through simulated controller input instead of assigning the
+  handle position or disabling the gun's support grip. Test targets explicitly
+  synchronize transforms before hitscan queries. This removes a target-creation
+  timing ambiguity; the previously failing shotgun hit still needs a Unity rerun.
+- Added four PlayMode regressions: joint removal and magazine deactivation;
+  overlapping socket ownership; rail travel/lateral restraint/return and disable;
+  obstruction preventing an action cycle.
+
+Validation here: C# syntax parsing and assembly-definition JSON checks, plus diff
+review. **No Unity compilation, PlayMode run, or headset run was available in this
+workspace.** Section 4 results are historical, not passing results for these fixes.
+Run the entire EditMode suite and both rig/firearm PlayMode suites, then the headset
+checklist. In particular verify slide/bolt grab, bracing, Uzi cocking, blocked
+cycling, shotgun hits, recoil/body drift, and repeat enable/disable.
+
+
+## 6. Handling pass after headset feedback (2026-11-08)
+
+Implemented on top of the physical-firearms fixes and existing TMP conversion:
+
+- Firearms accept authored snap poses only: primary at the trigger/grip, support
+  on the frame/fore-end, and the separate moving action. Arbitrary collider-surface
+  pickup is disabled for the gun and action. Grips use a 7.5 cm capture radius and
+  a small active-pose registry, independent of collision boxes. Only the primary
+  pose can fire; either hand can pick up a free support pose.
+- Legacy gun box contacts are disabled when the gun wakes. Convex mesh contacts
+  are built from visible weapon parts, with a separate moving action mesh. The
+  editor builder also creates mesh contacts and no grip-point boxes. Runtime
+  conversion upgrades existing scene instances without requiring a scene rebuild.
+- Compatible, aligned magazines receive collision clearance within 18 cm of the
+  well and snap into the seated pose within 6.5 cm (60 degree alignment tolerance).
+  A held magazine releases the hand automatically when seated. Grip must be
+  released before regrabbing it. Removal has a 0.35 second reinsertion cooldown.
+  Wrong ammo and insertion paths blocked by external geometry are rejected.
+- Hold the right thumbstick down to crouch; release to stand. Camera and hand
+  targets lower together. Capsule growth/standing remains blocked by ceilings.
+  Physical headset crouching still works. No force-grab has been added.
+- Soldier physical reach is measured arm length (0.498 m) plus a configurable
+  0.18 m allowance. The visual arm solver applies the same bounded extension.
+
+Added regression coverage for held-magazine snap/regrab suppression, authored
+weapon pose/contact setup, and stick crouch with blocked standing. Updated old
+partial-insertion and reach expectations to match the requested behavior.
+
+Validation in this workspace: syntax parsing, assembly JSON, and diff checks only.
+**Unity compilation, mesh cooking, PlayMode tests, and headset feel are unverified.**
+Run both full PlayMode suites and EditMode after pulling. In the headset, check
+all five gun grips, mag insertion/removal, support-to-primary hand transfer,
+slide operation, dropped-object pickup while crouched, and full arm extension.
+Do not interpret previous pass counts as validation of this handling pass.

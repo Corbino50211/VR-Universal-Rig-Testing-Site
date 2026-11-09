@@ -1,0 +1,7 @@
+{
+  "name": "UniversalRig.Weapons.Editor",
+  "rootNamespace": "UniversalRig.Weapons.Editor",
+  "references": ["UniversalRig.Weapons", "UniversalRig.Runtime", "Unity.TextMeshPro"],
+  "includePlatforms": ["Editor"],
+  "autoReferenced": true
+}

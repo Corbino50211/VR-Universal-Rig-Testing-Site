@@ -7,9 +7,11 @@ namespace UniversalRig
     public sealed class PhysicsGrabbable : MonoBehaviour
     {
         [Range(1, 2)] public int maximumHands = 2;
+        public bool authoredGripsOnly;
         public Rigidbody Body => body ? body : body = GetComponent<Rigidbody>();
         public int HoldingHands => holders.Count;
         public PhysicsHand PrimaryHand => holders.Count > 0 ? holders[0] : null;
+        public PhysicsHand SecondaryHand => holders.Count > 1 ? holders[1] : null;
         private Rigidbody body;
         private readonly List<PhysicsHand> holders = new List<PhysicsHand>(2);
 

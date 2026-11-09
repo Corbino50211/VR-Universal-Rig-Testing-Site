@@ -57,6 +57,18 @@ First-person rendering:
 
 Physics runs at 90 Hz (`Time.fixedDeltaTime = 1/90`, maximum timestep 0.1).
 
+## Firearms
+
+Guns live in `Assets/UniversalRig/Weapons` (`UniversalRig.Weapons`), composed onto `PhysicsGrabbable`. They do not subclass it and they do not change locomotion.
+
+- `GripPoint` (runtime) is an optional pose. `PhysicsHand.TryGrab` prefers it over the closest collider point and aligns the hand rigidbody to that transform before creating the hold joint. The closest-point fallback is unchanged. `AvatarPoseDriver` is still the only bone writer; a grip point keeps the index finger on `PhysicsHand.Trigger`.
+- One `Firearm` reads `FirearmProfile` (a ScriptableObject). The same component covers the M1911 (closed bolt, semi), Uzi (open bolt, semi/auto), AK74 and M4 (closed bolt, semi/auto) and the Benelli M4 (pump, 8 pellets, 5° cone).
+- `ActionPart` is the slide, bolt or pump: its own rigidbody on a prismatic `ConfigurableJoint`, not parented to the gun. `MagazineSocket` seats a magazine with a `ConfigurableJoint`, or absorbs a shell into the tube. Neither parents the round into the gun.
+- Hits are **hitscan**. The ray starts `muzzleBackoff` behind the muzzle. `RigMath.SelectShotHit` ignores the gun, the local rig (`PhysicsRig.IgnoresBody` and the rig hierarchy) and keeps a buried muzzle from hitting anything past the contact. A collider is damaged only when it has `IHitReceiver`. The lab target is `HitTarget`.
+- Recoil is a clamped impulse on the gun rigidbody (`RigMath.BoundedImpulse`). A second hand on the gun, or a hand on the action, scales it by 0.45. Velocity added by that impulse is capped (`maxRecoilSpeed`, 0.4 m/s before the brace scale).
+- Haptics use Input System 1.20 `SendHapticImpulseCommand` via `RigInput.Pulse`. The project has no firearm audio. Shots, dry fires and mechanism sounds are synthesized clips whose names start with `TEMPORARY`. The shotgun shell is a red box named `TEMPORARY shell` because `Bullets.fbx` has no shotshell.
+- Rebuild with **Tools > Universal Rig > Build Firearms**, or with **Create Soldier Test Scene**, which calls the same builder. Original weapon prefabs and models are not modified.
+
 ## Known limits
 
 - **No articulated active ragdoll.** Elbows, torso and legs are visual IK only. The physical arm is a reach constraint plus load transfer, not jointed limb bodies.

@@ -1,0 +1,6 @@
+{
+  "name": "UniversalRig.Weapons",
+  "rootNamespace": "UniversalRig.Weapons",
+  "references": ["UniversalRig.Runtime", "Unity.TextMeshPro"],
+  "autoReferenced": true
+}

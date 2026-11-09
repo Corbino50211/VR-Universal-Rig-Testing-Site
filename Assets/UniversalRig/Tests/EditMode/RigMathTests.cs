@@ -156,5 +156,40 @@ namespace UniversalRig.Tests
             }
             finally { Object.DestroyImmediate(settings); }
         }
+
+        [Test]
+        public void BoundedImpulseClampsAndIgnoresAZeroDirection()
+        {
+            Near(Vector3.zero, RigMath.BoundedImpulse(Vector3.zero, 4f, 1f));
+            Near(Vector3.back * 0.5f, RigMath.BoundedImpulse(Vector3.back * 3f, 2f, 0.5f));
+            Near(Vector3.up * 0.25f, RigMath.BoundedImpulse(Vector3.up, 0.25f, 1f));
+        }
+
+        [Test]
+        public void ConeDirectionStaysInsideTheRequestedAngle()
+        {
+            Vector3 straight = RigMath.ConeDirection(Vector3.forward, 0f, 1f, 0.5f);
+            Near(Vector3.forward, straight, 0.0001f);
+            for (int i = 0; i < 8; ++i)
+            {
+                Vector3 shot = RigMath.ConeDirection(Vector3.up, 8f, i / 7f, i / 8f);
+                Assert.That(Vector3.Angle(Vector3.up, shot), Is.LessThanOrEqualTo(8.01f));
+            }
+        }
+
+        [Test]
+        public void ShotSelectionSkipsIgnoredHitsAndFlagsABuriedMuzzle()
+        {
+            float[] distances = { 0.02f, 0.09f, 1.5f };
+            bool[] skip = { true, false, false };
+            int index = RigMath.SelectShotHit(distances, skip, 3, 0.08f, 0.02f, out bool blocked);
+            Assert.That(index, Is.EqualTo(1));
+            Assert.That(blocked, Is.True, "A hit at the muzzle is the wall the barrel is pressed into.");
+            index = RigMath.SelectShotHit(distances, skip, 3, 0.05f, 0.01f, out blocked);
+            Assert.That(index, Is.EqualTo(1));
+            Assert.That(blocked, Is.False);
+            bool[] all = { true, true, true };
+            Assert.That(RigMath.SelectShotHit(distances, all, 3, 0.08f, 0.02f, out _), Is.EqualTo(-1));
+        }
     }
 }

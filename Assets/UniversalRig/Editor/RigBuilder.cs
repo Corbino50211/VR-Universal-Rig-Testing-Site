@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Reflection;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -22,19 +23,20 @@ namespace UniversalRig.Editor
         private const string InputPath = Output + "/SoldierInput.inputactions";
         // Default fixed avatar (the Mixamo soldier) by GUID, so renaming the FBX doesn't break it.
         private const string DefaultAvatarGuid = "115d875de3f8af84bb820e10da65ef25";
-        private const string PistolPrefabPath = "Assets/Weapons/Prefabs/M1911.prefab";
 
         [MenuItem("Tools/Universal Rig/Create Soldier Test Scene")]
-        public static void CreateSoldierTestScene()
+        public static void CreateSoldierTestScene() => CreateSoldierTestScene(true);
+
+        public static void CreateSoldierTestScene(bool promptToSave)
         {
             if (EditorApplication.isPlayingOrWillChangePlaymode)
                 throw new InvalidOperationException("Stop Play Mode before generating the rig.");
             if (EditorApplication.isCompiling)
                 throw new InvalidOperationException("Wait for compilation before generating the rig.");
+            if (promptToSave && !EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
             Shader lit = Shader.Find("Universal Render Pipeline/Lit");
             Shader fadeShader = Shader.Find("UniversalRig/ComfortFade");
             if (!lit || !fadeShader) throw new InvalidOperationException("URP or the rig fade shader has not imported yet.");
-            if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
             EnsureFolder(Output);
             RigSettings settings = LoadOrCreateSettings();
             EnsureRealAsset(AssetDatabase.GetAssetPath(settings.avatarModel));
@@ -134,7 +136,7 @@ namespace UniversalRig.Editor
             EditorSceneManager.SaveScene(scene, ScenePath);
             Selection.activeGameObject = root;
             Debug.Log($"Universal Rig generated: {ScenePath}\nPrefab: {PrefabPath}\nSettings: {SettingsPath}\n" +
-                "Pistol is a grabbable prop; firing/reloading are the weapon milestone.");
+                "Firearm prefabs are in Assets/UniversalRig/Weapons/Generated. Headset checks in RIG_VALIDATION section 3 are still open.");
         }
 
         [MenuItem("Tools/Universal Rig/Set PCVR Physics to 90 Hz")]
@@ -250,7 +252,7 @@ namespace UniversalRig.Editor
             MakeProp("Heavy cube - 5 kg", new Vector3(1.5f, 1.05f, 0.6f), new Vector3(0.2f, 0.2f, 0.2f), 5f, prop);
             MakeProp("Very heavy crate - 40 kg", new Vector3(-1.5f, 0.25f, 0.5f), new Vector3(0.5f, 0.5f, 0.5f), 40f, prop);
             MakeProp("Two-hand bar", new Vector3(1.4f, 1.15f, 0.9f), new Vector3(0.8f, 0.07f, 0.07f), 2f, prop);
-            TryMakePistolProp(new Vector3(1.9f, 1.05f, 0.6f));
+            BuildFirearmRange();
             GameObject lightObject = new GameObject("Directional Light");
             Light light = lightObject.AddComponent<Light>();
             light.type = LightType.Directional;
@@ -261,33 +263,13 @@ namespace UniversalRig.Editor
             RenderSettings.ambientLight = new Color(0.45f, 0.45f, 0.45f);
         }
 
-        // Uses the user's authored M1911 prefab unmodified (real scale) under a physics root.
-        // Colliders follow the separate Slide and Magazin parts; weapon behaviour is not here.
-        private static void TryMakePistolProp(Vector3 position)
+        static void BuildFirearmRange()
         {
-            GameObject asset = AssetDatabase.LoadAssetAtPath<GameObject>(PistolPrefabPath);
-            if (!asset) { Debug.LogWarning("Universal Rig: M1911 prefab not found at " + PistolPrefabPath); return; }
-            GameObject prop = new GameObject("M1911 - grab prop (no firing yet)");
-            prop.transform.position = position;
-            GameObject model = (GameObject)PrefabUtility.InstantiatePrefab(asset, prop.transform);
-            model.transform.SetLocalPositionAndRotation(Vector3.zero, Quaternion.identity);
-            foreach (MeshFilter part in model.GetComponentsInChildren<MeshFilter>())
-            {
-                if (part.name != "Slide" && part.name != "Magazin") continue;
-                GameObject colliderObject = new GameObject(part.name + " Collider");
-                colliderObject.transform.SetParent(prop.transform, false);
-                colliderObject.transform.SetPositionAndRotation(part.transform.position, part.transform.rotation);
-                BoxCollider box = colliderObject.AddComponent<BoxCollider>();
-                Bounds bounds = part.sharedMesh.bounds;
-                box.center = bounds.center;
-                // Grip collider covers the frame around the magazine.
-                box.size = part.name == "Magazin" ? Vector3.Max(bounds.size, new Vector3(0.03f, 0f, 0.035f)) : bounds.size;
-            }
-            Rigidbody body = prop.AddComponent<Rigidbody>();
-            body.mass = 1.1f;
-            body.interpolation = RigidbodyInterpolation.Interpolate;
-            body.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
-            prop.AddComponent<PhysicsGrabbable>();
+            Type type = Type.GetType("UniversalRig.Weapons.Editor.FirearmBuilder, UniversalRig.Weapons.Editor");
+            if (type == null)
+                throw new InvalidOperationException("UniversalRig.Weapons.Editor is not compiled, so the firearm range cannot be built.");
+            MethodInfo method = type.GetMethod("BuildAllAndPlaceRange", BindingFlags.Public | BindingFlags.Static);
+            method.Invoke(null, null);
         }
 
         private static GameObject MakeProp(string name, Vector3 position, Vector3 size, float mass, Material material)

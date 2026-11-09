@@ -112,6 +112,7 @@ namespace UniversalRig
                 if (!hadHeadTracking && Calibrated) recenter = true;
                 if ((!Calibrated && autoCalibrateOnFirstTracking && input.OriginReady) || calibrate) CalibrateStanding();
                 else if (recenter) Recenter();
+                UpdateStickCrouch(dt);
                 Turn(dt);
                 UpdateHeight(dt);
             }
@@ -210,6 +211,7 @@ namespace UniversalRig
         {
             if (!input.HeadTracked || (leftHand && leftHand.HeldObject) || (rightHand && rightHand.HeldObject) || Climbing) return false;
             if (Calibrated && (!Grounded || Body.linearVelocity.sqrMagnitude > 0.09f)) return false;
+            input.CrouchOffset = 0f;
             float measured = input.RawHeadHeight;
             if (measured < 0.5f || measured > 2.5f) return false;
             input.trackingScale = Mathf.Clamp(settings.standingEyeHeight / measured, 0.5f, 1.5f);
@@ -228,7 +230,7 @@ namespace UniversalRig
 
         private void Turn(float dt)
         {
-            float stick = input.Turn.x;
+            float stick = Mathf.Abs(input.Turn.y) > 0.6f && Mathf.Abs(input.Turn.y) > Mathf.Abs(input.Turn.x) ? 0f : input.Turn.x;
             float degrees = 0f;
             if (settings.snapTurn)
             {
@@ -243,23 +245,40 @@ namespace UniversalRig
             if (degrees != 0f) input.trackingSpace.RotateAround(input.head.position, Vector3.up, degrees);
         }
 
+        private void UpdateStickCrouch(float dt)
+        {
+            bool down = settings.stickCrouch && input.Turn.y < -0.6f;
+            float target = down ? Mathf.Max(0f, input.RawHeadHeight * input.trackingScale - settings.crouchedEyeHeight) : 0f;
+            float next = Mathf.MoveTowards(input.CrouchOffset, target, settings.crouchSpeed * dt);
+            if (next < input.CrouchOffset)
+            {
+                float rise = input.CrouchOffset - next;
+                if (!CanOccupyTop(Mathf.Clamp(input.head.position.y - Body.position.y + rise + settings.headClearance,
+                    settings.minimumHeight, settings.maximumHeight))) return;
+            }
+            input.CrouchOffset = next;
+            input.RefreshPoses();
+        }
+
+        private bool CanOccupyTop(float top)
+        {
+            float radius = settings.bodyRadius - 0.01f;
+            Vector3 bottom = Body.position + Vector3.up * (settings.stepHeight + settings.bodyRadius);
+            Vector3 upper = Body.position + Vector3.up * (top - radius);
+            int count = Physics.OverlapCapsuleNonAlloc(bottom, upper, radius, overlaps,
+                settings.environmentMask, QueryTriggerInteraction.Ignore);
+            if (count == overlaps.Length) return false;
+            for (int i = 0; i < count; ++i)
+                if (!bodyIgnored.Contains(overlaps[i])) return false;
+            return true;
+        }
+
         private void UpdateHeight(float dt)
         {
             float current = Top;
             float top = Mathf.MoveTowards(current, Mathf.Clamp(input.head.position.y - Body.position.y +
                 settings.headClearance, settings.minimumHeight, settings.maximumHeight), 3f * dt);
-            if (top > current)
-            {
-                // Test the grown volume before standing up under a ceiling; the inset keeps
-                // touching walls from vetoing every stand-up. Held items don't count.
-                float radius = settings.bodyRadius - 0.01f;
-                Vector3 bottom = Body.position + Vector3.up * (settings.stepHeight + settings.bodyRadius);
-                Vector3 upper = Body.position + Vector3.up * (top - radius); // full height, no vertical inset
-                int count = Physics.OverlapCapsuleNonAlloc(bottom, upper, radius, overlaps,
-                    settings.environmentMask, QueryTriggerInteraction.Ignore);
-                for (int i = 0; i < count; ++i)
-                    if (!bodyIgnored.Contains(overlaps[i])) return;
-            }
+            if (top > current && !CanOccupyTop(top)) return;
             SetTop(top);
         }
 
@@ -307,7 +326,21 @@ namespace UniversalRig
                 if (bodyIgnored.Contains(collider) && !pendingRestore.Contains(collider)) pendingRestore.Add(collider);
         }
 
-        public bool IgnoresBody(Collider collider) => bodyIgnored.Contains(collider);
+        public bool IgnoresBody(Collider collider) => collider && bodyIgnored.Contains(collider);
+
+        // Extra colliders on a held weapon (a seated magazine, a slide) that are not children of it.
+        public void IgnoreCollider(Collider collider)
+        {
+            if (!collider || !Capsule) return;
+            if (bodyIgnored.Add(collider)) Physics.IgnoreCollision(Capsule, collider, true);
+            pendingRestore.Remove(collider);
+        }
+
+        public void QueueRestoreCollider(Collider collider)
+        {
+            if (!collider || !bodyIgnored.Contains(collider) || pendingRestore.Contains(collider)) return;
+            pendingRestore.Add(collider);
+        }
 
         private void RestoreReleasedCollisions()
         {
