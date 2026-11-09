@@ -11,6 +11,7 @@ namespace UniversalRig.Weapons
         [Min(0)] public int rounds = 1;
         public Rigidbody Body => body ? body : body = GetComponent<Rigidbody>();
         Rigidbody body;
+        public float InsertionBlockedUntil { get; internal set; }
         public MagazineSocket Socket { get; private set; }
 
         internal bool TryClaim(MagazineSocket socket)

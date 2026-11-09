@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace UniversalRig
@@ -10,6 +11,19 @@ namespace UniversalRig
     {
         public enum Side { Either, Left, Right }
         public enum Role { Primary, Support }
+
+        public static readonly List<GripPoint> Active = new List<GripPoint>();
+        [Min(0.01f)] public float captureRadius = 0.075f;
+        void OnEnable() { if (!Active.Contains(this)) Active.Add(this); }
+        void OnDisable() { Active.Remove(this); }
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        static void ResetRegistry() { Active.Clear(); }
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
+        static void RestoreRegistry()
+        {
+            foreach (GripPoint point in Object.FindObjectsByType<GripPoint>(FindObjectsSortMode.None))
+                if (point.isActiveAndEnabled && !Active.Contains(point)) Active.Add(point);
+        }
 
         public Side side = Side.Either;
         public Role role = Role.Primary;

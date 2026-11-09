@@ -66,10 +66,45 @@ namespace UniversalRig.Weapons
                 enabled = false;
                 return;
             }
+            ConfigurePhysicalGrips();
             Mode = profile.allowSemi ? FireMode.Semi : FireMode.Auto;
             if (triggerVisual) triggerRest = triggerVisual.localRotation;
             if (hammerVisual) hammerRest = hammerVisual.localRotation;
             if (muzzleLight) muzzleLight.enabled = false;
+        }
+
+        // Upgrade already-authored scene instances as well as newly built prefabs.
+        // Contact geometry is separate from the three explicit hand poses.
+        void ConfigurePhysicalGrips()
+        {
+            Grabbable.authoredGripsOnly = true;
+            foreach (Collider collider in GetComponentsInChildren<Collider>())
+                if (collider.attachedRigidbody == Body) collider.enabled = false;
+            foreach (MeshFilter filter in GetComponentsInChildren<MeshFilter>())
+            {
+                MeshRenderer renderer = filter.GetComponent<MeshRenderer>();
+                if (!filter.sharedMesh || !renderer || !renderer.enabled || filter.GetComponent<TMP_Text>()) continue;
+                if (action && filter.transform == action.visual) continue;
+                MeshCollider collider = filter.GetComponent<MeshCollider>();
+                if (!collider) collider = filter.gameObject.AddComponent<MeshCollider>();
+                collider.sharedMesh = filter.sharedMesh;
+                collider.convex = true;
+                collider.enabled = true;
+            }
+            GripPoint primary = null, support = null;
+            foreach (GripPoint grip in GetComponentsInChildren<GripPoint>())
+            {
+                grip.captureRadius = 0.075f;
+                if (grip.role == GripPoint.Role.Primary) primary = grip;
+                else support = grip;
+            }
+            if (action) action.RefreshCollisionExclusions();
+            if (primary && support)
+            {
+                // The support pose belongs on the frame/fore-end, never the magazine.
+                bool longGun = profile.tubeCapacity > 0 || profile.ammoId == "556" || profile.ammoId == "545";
+                support.transform.position = primary.transform.position + muzzle.forward * (longGun ? 0.22f : 0.10f) + muzzle.up * 0.03f;
+            }
         }
 
         void FixedUpdate()
@@ -310,8 +345,9 @@ namespace UniversalRig.Weapons
         {
             PhysicsHand primary = Grabbable.PrimaryHand;
             PhysicsHand secondary = Grabbable.SecondaryHand;
-            if (primary && primary.ActiveGrip && primary.ActiveGrip.role == GripPoint.Role.Support && secondary) return secondary;
-            return primary ? primary : secondary;
+            if (primary && primary.ActiveGrip && primary.ActiveGrip.role == GripPoint.Role.Primary) return primary;
+            if (secondary && secondary.ActiveGrip && secondary.ActiveGrip.role == GripPoint.Role.Primary) return secondary;
+            return null;
         }
 
         void CheckSelector(PhysicsHand firing)

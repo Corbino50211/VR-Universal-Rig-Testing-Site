@@ -20,6 +20,8 @@ namespace UniversalRig
         public float deviceStandingHeight = 1.7f;
         [Range(0.5f, 1.5f)] public float trackingScale = 1f;
 
+        public float CrouchOffset { get; set; }
+
         public bool HeadTracked { get; private set; }
         public bool LeftTracked { get; private set; }
         public bool RightTracked { get; private set; }
@@ -177,7 +179,7 @@ namespace UniversalRig
             if (!valid) return false;
             Vector3 local = position.ReadValue<Vector3>();
             if (!FloorMode) local.y += deviceStandingHeight;
-            node.SetLocalPositionAndRotation(local * trackingScale, rotation.ReadValue<Quaternion>());
+            node.SetLocalPositionAndRotation(local * trackingScale - Vector3.up * CrouchOffset, rotation.ReadValue<Quaternion>());
             return true;
         }
     }

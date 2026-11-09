@@ -104,7 +104,7 @@ namespace UniversalRig.Weapons.Editor
             block.transform.position = new Vector3(-3.3f, 1.0f, -2.35f);
             block.transform.localScale = new Vector3(0.08f, 0.4f, 0.4f);
             Label(new Vector3(0f, 1.7f, -1.55f),
-                "Firearms (behind you and on the right-hand table)\nGrip grabs. Trigger fires. Guns start empty.\nSeat a magazine and release it, then rack the slide, bolt, or pump.\nOther hand on the foregrip braces. Pull the moving part to cycle.\nShotgun: push a red TEMPORARY shell into the port, then pump.\nOther hand's trigger on the gold selector switches SEMI / AUTO.\nShot sounds are temporary synthesized clicks. No firearm audio in the project.\nHeadset rig checks (RIG_VALIDATION section 3) are still open.");
+                "Firearms (behind you and on the right-hand table)\nGrip at trigger, foregrip, or slide. Trigger fires from main grip. Right stick down crouches.\nPush an aligned magazine into its well to snap it in, then rack the action.\nOther hand on the foregrip braces. Pull the moving part to cycle.\nShotgun: push a red TEMPORARY shell into the port, then pump.\nOther hand's trigger on the gold selector switches SEMI / AUTO.\nShot sounds are temporary synthesized clicks. No firearm audio in the project.\nHeadset rig checks (RIG_VALIDATION section 3) are still open.");
             Label(new Vector3(-3.3f, 1.35f, -2.35f), "Muzzle block");
             Label(new Vector3(0f, 1.8f, -3.55f), "Target");
         }
@@ -300,6 +300,7 @@ namespace UniversalRig.Weapons.Editor
             body.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
             PhysicsGrabbable grabbable = gun.AddComponent<PhysicsGrabbable>();
             grabbable.maximumHands = 2;
+            grabbable.authoredGripsOnly = true;
             AddBox(gun.transform, actionMesh, actionPart + " collider");
             Transform frame = FrameMesh(gun, actionMesh, magazineMesh, trigger);
             if (frame && frame != actionMesh) AddBox(gun.transform, frame, "Frame collider");
@@ -309,7 +310,7 @@ namespace UniversalRig.Weapons.Editor
             muzzle.SetPositionAndRotation(MuzzlePoint(gun, barrel, magazineMesh), Quaternion.LookRotation(barrel, gunUp));
 
             Transform primary = Grip(gun.transform, "Primary grip", trigger.position - barrel * 0.04f - gunUp * 0.03f, gripRot, GripPoint.Role.Primary);
-            Vector3 bracePos = (magazineMesh ? WorldCenter(magazineMesh) : trigger.position) + barrel * (travel > 0.05f ? 0.16f : 0.08f);
+            Vector3 bracePos = primary.position + barrel * (profile.tubeCapacity > 0 || profile.ammoId == "556" || profile.ammoId == "545" ? 0.22f : 0.10f) + gunUp * 0.03f;
             Grip(gun.transform, "Support grip", bracePos, gripRot, GripPoint.Role.Support);
 
             Transform marker = new GameObject(actionPart + " handle marker").transform;
@@ -402,8 +403,7 @@ namespace UniversalRig.Weapons.Editor
             GripPoint grip = go.AddComponent<GripPoint>();
             grip.role = role;
             grip.fingerCurl = 1f;
-            BoxCollider box = go.AddComponent<BoxCollider>();
-            box.size = new Vector3(0.04f, 0.05f, 0.04f);
+            grip.captureRadius = 0.075f;
             return go.transform;
         }
 
@@ -414,9 +414,10 @@ namespace UniversalRig.Weapons.Editor
             var go = new GameObject(objectName);
             go.transform.SetParent(parent, true);
             go.transform.SetPositionAndRotation(meshTransform.position, meshTransform.rotation);
-            BoxCollider box = go.AddComponent<BoxCollider>();
-            box.center = mesh.bounds.center;
-            box.size = Vector3.Max(mesh.bounds.size, Vector3.one * 0.02f);
+            go.transform.localScale = meshTransform.lossyScale;
+            MeshCollider contact = go.AddComponent<MeshCollider>();
+            contact.sharedMesh = mesh;
+            contact.convex = true;
         }
 
         static Transform FrameMesh(GameObject gun, Transform action, Transform magazine, Transform trigger)

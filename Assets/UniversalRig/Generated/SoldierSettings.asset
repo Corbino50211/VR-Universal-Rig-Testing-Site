@@ -20,6 +20,7 @@ MonoBehaviour:
   rightShoulderPosition: {x: 0.19497393, y: 1.4294707, z: -0.04749544}
   hipHeight: 0.9534753
   armLength: 0.4976568
+  armReachAllowance: 0.18
   leftWristOffset: {x: -0.03333956, y: 0.08334868, z: -6.43692e-10}
   rightWristOffset: {x: 0.035962, y: 0.089904755, z: 5.714472e-10}
   leftHandBoneRotation: {x: 0.69568235, y: -0.02979235, z: 0.71686035, w: -0.035356384}
@@ -46,6 +47,9 @@ MonoBehaviour:
   maximumSlope: 50
   smoothTurnSpeed: 90
   snapTurn: 0
+  stickCrouch: 1
+  crouchedEyeHeight: 0.65
+  crouchSpeed: 1.5
   snapAngle: 30
   stickDeadzone: 0.15
   maximumHeadSeparation: 0.5

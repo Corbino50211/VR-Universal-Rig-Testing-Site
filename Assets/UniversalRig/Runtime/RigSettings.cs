@@ -17,8 +17,10 @@ namespace UniversalRig
         public Vector3 leftShoulderPosition = new Vector3(-0.19f, 1.43f, -0.05f);
         public Vector3 rightShoulderPosition = new Vector3(0.19f, 1.43f, -0.05f);
         [Min(0.1f)] public float hipHeight = 0.95f;
-        [Tooltip("Shoulder-to-wrist length. The physical reach limit and the visual arm both use it.")]
+        [Tooltip("Measured shoulder-to-wrist bone length. Reach allowance adds bounded extension to physics and visual arms.")]
         [Min(0.2f)] public float armLength = 0.5f;
+        [Range(0f, 0.3f)] public float armReachAllowance = 0.18f;
+        public float PhysicalArmReach => armLength + armReachAllowance;
         [Tooltip("Wrist position in the OpenXR grip-pose frame (+Z toward thumb side along the fist tube).")]
         public Vector3 leftWristOffset = new Vector3(-0.03f, 0.08f, 0f);
         public Vector3 rightWristOffset = new Vector3(0.03f, 0.08f, 0f);
@@ -54,6 +56,10 @@ namespace UniversalRig
         [Range(0f, 80f)] public float maximumSlope = 50f;
         [Min(0f)] public float smoothTurnSpeed = 90f;
         public bool snapTurn = false;
+        [Header("Hold right stick down to crouch")]
+        public bool stickCrouch = true;
+        [Range(0.4f, 1.2f)] public float crouchedEyeHeight = 0.65f;
+        [Min(0.1f)] public float crouchSpeed = 1.5f;
         [Range(15f, 90f)] public float snapAngle = 30f;
         [Range(0f, 0.5f)] public float stickDeadzone = 0.15f;
         [Tooltip("Fade when the head is further than this from the body's neck position.")]

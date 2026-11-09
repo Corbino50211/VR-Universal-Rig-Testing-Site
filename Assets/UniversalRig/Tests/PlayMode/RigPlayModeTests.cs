@@ -104,10 +104,32 @@ namespace UniversalRig.Tests
             yield return Seconds(0.75f);
             PhysicsHand hand = rig.rightHand;
             float reach = Vector3.Distance(hand.Body.position + hand.Body.rotation * hand.WristOffset, rig.ShoulderPosition(false));
-            Assert.That(reach, Is.LessThan(settings.armLength + 0.03f));
+            Assert.That(reach, Is.LessThan(settings.PhysicalArmReach + 0.03f));
             Assert.That(hand.TrackingError, Is.GreaterThan(0.5f), "Out-of-reach target must not teleport the hand.");
             yield return new WaitForEndOfFrame();
             AssertVisibleWristsMatchPhysicalHands();
+        }
+
+        [UnityTest]
+        public IEnumerator StickCrouchLowersTrackedHandsAndBlocksStandingUnderCeiling()
+        {
+            float standing = input.head.position.y;
+            float handHeight = input.leftTarget.position.y;
+            right.primary2DAxis = Vector2.down;
+            Push();
+            yield return Seconds(1f);
+            Assert.That(input.head.position.y, Is.LessThan(standing - 0.6f));
+            Assert.That(input.leftTarget.position.y, Is.LessThan(handHeight - 0.6f));
+            Assert.That(rig.Top, Is.LessThan(1f));
+            GameObject ceiling = Box("Crouch ceiling", rig.Body.position + Vector3.up * 1.1f, new Vector3(3f, 0.2f, 3f));
+            Physics.SyncTransforms();
+            right.primary2DAxis = Vector2.zero;
+            Push();
+            yield return Seconds(1f);
+            Assert.That(input.head.position.y, Is.LessThan(1.05f));
+            Object.Destroy(ceiling);
+            yield return Seconds(1f);
+            Assert.That(input.CrouchOffset, Is.LessThan(0.01f));
         }
 
         [UnityTest]

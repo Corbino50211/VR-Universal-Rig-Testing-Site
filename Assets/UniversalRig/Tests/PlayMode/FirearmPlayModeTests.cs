@@ -107,9 +107,9 @@ namespace UniversalRig.Tests
             Magazine partial = SpawnMag("Mag_45", 3);
             yield return GrabLoose(partial.GetComponent<PhysicsGrabbable>(), true);
             Assert.That(partial.GetComponent<PhysicsGrabbable>().PrimaryHand, Is.SameAs(rig.leftHand));
-            yield return Move(true, gun.socket.seat);
+            yield return Move(true, gun.socket.seat.position + gun.muzzle.up * -0.2f, gun.socket.seat.rotation);
             yield return Seconds(0.25f);
-            Assert.That(gun.Magazine, Is.Null, "A magazine still in the hand is not seated.");
+            Assert.That(gun.Magazine, Is.Null, "An incomplete insert is not seated.");
             yield return Move(true, gun.socket.seat.position + Vector3.left * 0.4f, gun.socket.seat.rotation);
             left.grip = 0f;
             Push();
@@ -359,11 +359,10 @@ namespace UniversalRig.Tests
             ActionPart action = gun.action;
             Vector3 axis = action.OpenDirectionWorld;
             // Find the handle box extent along the rail, independently of its rotation.
-            BoxCollider handle = action.HandleBody.GetComponent<BoxCollider>();
-            Vector3 localAxis = handle.transform.InverseTransformDirection(axis);
-            Vector3 half = handle.size * 0.5f;
-            float extent = Mathf.Abs(localAxis.x) * half.x + Mathf.Abs(localAxis.y) * half.y + Mathf.Abs(localAxis.z) * half.z;
-            GameObject obstacle = Box("Blocked action", action.HandleBody.position + axis * (extent + action.travel * 0.35f + 0.005f),
+            Collider handle = action.HandleBody.GetComponentInChildren<Collider>();
+            Vector3 half = handle.bounds.extents;
+            float extent = Mathf.Abs(axis.x) * half.x + Mathf.Abs(axis.y) * half.y + Mathf.Abs(axis.z) * half.z;
+            GameObject obstacle = Box("Blocked action", handle.bounds.center + axis * (extent + action.travel * 0.35f + 0.005f),
                 new Vector3(0.3f, 0.3f, 0.01f));
             obstacle.transform.rotation = Quaternion.LookRotation(axis);
             Physics.SyncTransforms();
@@ -377,6 +376,42 @@ namespace UniversalRig.Tests
             Assert.That(action.Open01, Is.LessThan(action.threshold));
             Assert.That(gun.ChamberLoaded, Is.False);
             Assert.That(gun.TubeRounds, Is.EqualTo(1));
+        }
+
+        [UnityTest]
+        public IEnumerator HeldMagazineSnapsInAndRequiresReleaseBeforeRemoval()
+        {
+            Firearm gun = SpawnGun("M1911", rig.rightHand);
+            yield return GrabPrimary(gun, false);
+            Magazine mag = SpawnMag("Mag_45", 7);
+            yield return GrabLoose(mag.GetComponent<PhysicsGrabbable>(), true);
+            // Drive a held magazine through the actual socket path; no direct Seat call.
+            float end = Time.time + 2f;
+            while (Time.time < end && gun.Magazine != mag)
+            {
+                Vector3 delta = gun.socket.seat.position - mag.Body.position;
+                Aim(true, rig.leftHand.TargetPosition + delta, gun.socket.seat.rotation);
+                Push();
+                yield return new WaitForFixedUpdate();
+            }
+            Assert.That(gun.Magazine, Is.SameAs(mag));
+            Assert.That(rig.leftHand.Holding, Is.False);
+            yield return Seconds(0.2f);
+            Assert.That(gun.Magazine, Is.SameAs(mag), "Holding grip must not instantly pull the seated mag out.");
+            Assert.That(mag.rounds, Is.EqualTo(7));
+        }
+
+        [UnityTest]
+        public IEnumerator GunHasOnlyThreeAuthoredGrabPoses()
+        {
+            Firearm gun = SpawnGun("M1911", rig.rightHand);
+            yield return null;
+            Assert.That(gun.Grabbable.authoredGripsOnly, Is.True);
+            Assert.That(gun.GetComponentsInChildren<GripPoint>().Length, Is.EqualTo(2));
+            Assert.That(gun.action.HandleBody.GetComponentsInChildren<GripPoint>().Length, Is.EqualTo(1));
+            foreach (BoxCollider box in gun.GetComponentsInChildren<BoxCollider>())
+                Assert.That(box.enabled, Is.False, "Legacy boxes must not define weapon contact or grabs.");
+            Assert.That(gun.GetComponentsInChildren<MeshCollider>().Length, Is.GreaterThan(0));
         }
 
         Firearm SpawnGun(string name, PhysicsHand hand)

@@ -51,14 +51,33 @@ namespace UniversalRig.Weapons
             HandleBody.interpolation = RigidbodyInterpolation.Interpolate;
             HandleBody.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
             HandleBody.maxDepenetrationVelocity = 2f;
-            BoxCollider box = go.AddComponent<BoxCollider>();
-            box.size = new Vector3(0.06f, 0.05f, 0.07f);
+            // Collision follows the actual moving mesh; the grip registry handles pickup.
+            Collider box;
+            MeshFilter mesh = visual ? visual.GetComponent<MeshFilter>() : null;
+            if (mesh && mesh.sharedMesh)
+            {
+                var shape = new GameObject("Action contact mesh");
+                shape.transform.SetPositionAndRotation(visual.position, visual.rotation);
+                shape.transform.localScale = visual.lossyScale;
+                shape.transform.SetParent(go.transform, true);
+                MeshCollider contact = shape.AddComponent<MeshCollider>();
+                contact.sharedMesh = mesh.sharedMesh;
+                contact.convex = true;
+                box = contact;
+            }
+            else
+            {
+                SphereCollider contact = go.AddComponent<SphereCollider>();
+                contact.radius = 0.02f;
+                box = contact;
+            }
             HandleGrip = go.AddComponent<GripPoint>();
             HandleGrip.role = GripPoint.Role.Support;
             HandleGrip.isActionHandle = true;
             HandleGrip.fingerCurl = 1f;
             PhysicsGrabbable grab = go.AddComponent<PhysicsGrabbable>();
             grab.maximumHands = 1;
+            grab.authoredGripsOnly = true;
             joint = go.AddComponent<ConfigurableJoint>();
             joint.connectedBody = firearm.Body;
             joint.autoConfigureConnectedAnchor = false;
@@ -84,6 +103,14 @@ namespace UniversalRig.Weapons
             foreach (Collider gunCollider in gunColliders)
                 if (gunCollider && gunCollider != box) Physics.IgnoreCollision(box, gunCollider, true);
             marker.gameObject.SetActive(false);
+        }
+
+        public void RefreshCollisionExclusions()
+        {
+            if (!HandleBody || !firearm) return;
+            foreach (Collider handle in HandleBody.GetComponentsInChildren<Collider>())
+                foreach (Collider gun in firearm.GetComponentsInChildren<Collider>())
+                    Physics.IgnoreCollision(handle, gun, true);
         }
 
         public void SetLocked(bool locked)

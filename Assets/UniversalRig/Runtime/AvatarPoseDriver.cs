@@ -156,7 +156,13 @@ namespace UniversalRig
             if (arm == null) return;
             Transform grip = hand.transform;
             Vector3 pole = arm.root.position + yaw * new Vector3(side * 0.4f, -0.6f, -0.4f);
-            Solve(arm, grip.TransformPoint(hand.WristOffset), pole, grip.rotation * boneInGrip);
+            Vector3 target = grip.TransformPoint(hand.WristOffset);
+            float natural = arm.upper + arm.lower;
+            float stretch = Mathf.Clamp(Vector3.Distance(arm.root.position, target) / Mathf.Max(0.01f, natural),
+                1f, rig.settings.PhysicalArmReach / Mathf.Max(0.01f, rig.settings.armLength));
+            arm.mid.localPosition *= stretch;
+            arm.tip.localPosition *= stretch;
+            Solve(arm, target, pole, grip.rotation * boneInGrip, stretch);
         }
 
         private void SolveFoot(Limb limb)
@@ -181,10 +187,10 @@ namespace UniversalRig
                     Quaternion.AngleAxis((finger.index ? index : grip) * finger.angle, finger.axis);
         }
 
-        private static void Solve(Limb limb, Vector3 target, Vector3 pole, Quaternion rotation)
+        private static void Solve(Limb limb, Vector3 target, Vector3 pole, Quaternion rotation, float stretch = 1f)
         {
             if (limb == null) return;
-            Vector3 bend = RigMath.SolveBend(limb.root.position, target, pole, limb.upper, limb.lower, out Vector3 end);
+            Vector3 bend = RigMath.SolveBend(limb.root.position, target, pole, limb.upper * stretch, limb.lower * stretch, out Vector3 end);
             limb.root.rotation = Quaternion.FromToRotation(limb.mid.position - limb.root.position,
                 bend - limb.root.position) * limb.root.rotation;
             limb.mid.rotation = Quaternion.FromToRotation(limb.tip.position - limb.mid.position,

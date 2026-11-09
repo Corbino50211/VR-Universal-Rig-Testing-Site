@@ -237,3 +237,39 @@ workspace.** Section 4 results are historical, not passing results for these fix
 Run the entire EditMode suite and both rig/firearm PlayMode suites, then the headset
 checklist. In particular verify slide/bolt grab, bracing, Uzi cocking, blocked
 cycling, shotgun hits, recoil/body drift, and repeat enable/disable.
+
+
+## 6. Handling pass after headset feedback (2026-11-08)
+
+Implemented on top of the physical-firearms fixes and existing TMP conversion:
+
+- Firearms accept authored snap poses only: primary at the trigger/grip, support
+  on the frame/fore-end, and the separate moving action. Arbitrary collider-surface
+  pickup is disabled for the gun and action. Grips use a 7.5 cm capture radius and
+  a small active-pose registry, independent of collision boxes. Only the primary
+  pose can fire; either hand can pick up a free support pose.
+- Legacy gun box contacts are disabled when the gun wakes. Convex mesh contacts
+  are built from visible weapon parts, with a separate moving action mesh. The
+  editor builder also creates mesh contacts and no grip-point boxes. Runtime
+  conversion upgrades existing scene instances without requiring a scene rebuild.
+- Compatible, aligned magazines receive collision clearance within 18 cm of the
+  well and snap into the seated pose within 6.5 cm (60 degree alignment tolerance).
+  A held magazine releases the hand automatically when seated. Grip must be
+  released before regrabbing it. Removal has a 0.35 second reinsertion cooldown.
+  Wrong ammo and insertion paths blocked by external geometry are rejected.
+- Hold the right thumbstick down to crouch; release to stand. Camera and hand
+  targets lower together. Capsule growth/standing remains blocked by ceilings.
+  Physical headset crouching still works. No force-grab has been added.
+- Soldier physical reach is measured arm length (0.498 m) plus a configurable
+  0.18 m allowance. The visual arm solver applies the same bounded extension.
+
+Added regression coverage for held-magazine snap/regrab suppression, authored
+weapon pose/contact setup, and stick crouch with blocked standing. Updated old
+partial-insertion and reach expectations to match the requested behavior.
+
+Validation in this workspace: syntax parsing, assembly JSON, and diff checks only.
+**Unity compilation, mesh cooking, PlayMode tests, and headset feel are unverified.**
+Run both full PlayMode suites and EditMode after pulling. In the headset, check
+all five gun grips, mag insertion/removal, support-to-primary hand transfer,
+slide operation, dropped-object pickup while crouched, and full arm extension.
+Do not interpret previous pass counts as validation of this handling pass.
